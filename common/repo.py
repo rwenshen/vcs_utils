@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+import typing
 
 
 class Repo(ABC):
@@ -10,15 +11,27 @@ class Repo(ABC):
     @property
     def root(self) -> Path:
         return self.__root
+    
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        raise NotImplemented
 
 
 class RepoRemoteInterface(ABC):
-    pass
+
+    @abstractmethod
+    @staticmethod
+    def clone(root: Path, force: bool=False, **kwargs) -> Repo:
+        raise NotImplemented
 
 
 class RepoReadInterface(ABC):
     pass
 
-
 class RepoWriteInterface(ABC):
+    pass
+
+
+class RepoTagInterface(ABC):
     pass
