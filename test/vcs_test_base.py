@@ -43,37 +43,33 @@ class VCSTestBase(unittest.TestCase):
     }
 
     __opResultDict = {
-        frozenset('add', 'edit'): 'add',
-        frozenset('add', 'delete'): 'none',
-        frozenset('add', 'move'): 'none',
-        frozenset('add', 'move_edit'): 'none',
+        frozenset(('add', 'edit')): 'add',
+        frozenset(('add', 'delete')): 'none',
+        frozenset(('add', 'move')): 'none',
+        frozenset(('add', 'move_edit')): 'none',
 
-        frozenset('edit', 'edit'): 'edit',
-        frozenset('edit', 'delete'): 'delete',
-        frozenset('edit', 'move'): 'move_edit',
-        frozenset('edit', 'move_edit'): 'move_edit',
+        frozenset(('edit', 'edit')): 'edit',
+        frozenset(('edit', 'delete')): 'delete',
+        frozenset(('edit', 'move')): 'move_edit',
+        frozenset(('edit', 'move_edit')): 'move_edit',
 
-        frozenset('delete', 'add'): 'edit',
-        frozenset('delete', 'move_dest'): 'edit',
+        frozenset(('delete', 'add')): 'edit',
+        frozenset(('delete', 'move_dest')): 'edit',
 
-        frozenset('move', 'add'): 'edit',
-        frozenset('move', 'move_dest'): 'edit',
-        frozenset('move', 'move_back'): 'edit',
+        frozenset(('move', 'add')): 'edit',
+        frozenset(('move', 'move_dest')): 'edit',
+        frozenset(('move', 'move_back')): 'edit',
 
-        frozenset('move_dest', 'edit'): 'move_dest',
-        frozenset('move_dest', 'delete'): 'none',
-        frozenset('move_dest', 'move'): 'none',
+        frozenset(('move_dest', 'edit')): 'move_dest',
+        frozenset(('move_dest', 'delete')): 'none',
+        frozenset(('move_dest', 'move')): 'none',
 
-        frozenset('none', 'add'): 'add',
-        frozenset('none', 'move_dest'): 'move_dest',
-
+        frozenset(('none', 'add')): 'add',
+        frozenset(('none', 'move_dest')): 'move_dest',
     }
 
     def ttt():
 
-        
-
-        
         opChains = []
         chainLength = 5
         moveTmpFiles = []

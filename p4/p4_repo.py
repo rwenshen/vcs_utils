@@ -7,7 +7,7 @@ from P4 import P4
 
 from ..common.logger import *
 from ..common.commit import Commit
-from ..common.repo import Repo
+from ..common.repo import Repo, RepoErrorCode
 from .p4_runner import *
 from .p4_commit import P4Commit
 
@@ -19,7 +19,7 @@ class P4RepoErrorCode(Enum):
 
     # repo
         # client
-    client_invalid = 1
+    client_invalid = RepoErrorCode.last.value
     client_inexistent = auto()
         # repo init
     root_invalid = 0x100
@@ -31,7 +31,7 @@ class P4RepoErrorCode(Enum):
     stream_no_parent = auto()
 
     # tag
-    tag_to_pending = 0x100
+    tag_to_pending = 0x300
 
 VcsHelperError.registerError('p4',
     ErrorCategory.connection, P4RepoErrorCode.connection_failure,

@@ -5,7 +5,7 @@ import git
 
 from ..common.logger import *
 from ..common.commit import Commit
-from ..common.repo import Repo
+from ..common.repo import Repo, RepoErrorCode
 
 from .git_commit import GitCommit
 
@@ -28,7 +28,7 @@ class GitRepoErrorCode(Enum):
     submodule_remote_inexistent = auto()
     
     # repo
-    reset_failure = auto()
+    reset_failure = RepoErrorCode.last.value
 
     # commit
 

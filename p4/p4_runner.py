@@ -5,6 +5,7 @@ from pathlib import Path
 from P4 import P4, P4Exception
 
 from ..common.logger import *
+from ..common.commit import CommitErrorCode
 
 
 __all__ = [
@@ -39,8 +40,7 @@ class P4RunErrorCode(Enum):
     remote_error_last = auto()
 
     # ErrorCategory.commit
-    # start from 1000
-    add = CommitErrorCode.common_commit_last.value
+    add = CommitErrorCode.last.value
     edit = auto()
     delete = auto()
     move = auto()

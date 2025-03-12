@@ -1,21 +1,19 @@
 import typing
+from enum import Enum, auto
 from pathlib import Path
 import git
 
 from ..common.logger import *
 from ..common.change import ChangeType, Change
-from ..common.commit import Commit
+from ..common.commit import Commit, CommitErrorCode
 
 class GitCommitErrorCode(Enum):
-    add_failure = 1
+    add_failure = CommitErrorCode.last.value
     move_failure = auto()
     remove_failure = auto()
     multiple_writable = auto()
     commit_failure = auto()
     nothing_to_commit = auto()
-
-    common_commit_last = auto()
-
 
 VcsHelperError.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.add_failure,

@@ -762,7 +762,7 @@ class P4RepoTest(VCSTestBase):
             self.checkAddFile(commits[0], moveTmpFile, f'Init {moveTmpFile}\n', parent=commitRoot)
             #commit
         self.assertSaveSubmit(commits[0])
-        input("End of the test; you can check p4 repo at 127.0.0.1:1666. Press Enter to continue...")
+
         # loop to commit all changes
         for repeatIndex in range(chainLength):
             commitIndex = repeatIndex + 1
@@ -781,23 +781,23 @@ class P4RepoTest(VCSTestBase):
         VcsHelperLogger.info('[TEST] iter diffs, full test...')
 
         opResultDict = {
-            frozenset('add', 'edit'): 'add',
-            frozenset('add', 'delete'): 'none',
-            frozenset('add', 'move'): 'none',
+            frozenset(('add', 'edit')): 'add',
+            frozenset(('add', 'delete')): 'none',
+            frozenset(('add', 'move')): 'none',
 
-            frozenset('edit', 'edit'): 'edit',
-            frozenset('edit', 'delete'): 'delete',
-            frozenset('edit', 'move'): 'move',
+            frozenset(('edit', 'edit')): 'edit',
+            frozenset(('edit', 'delete')): 'delete',
+            frozenset(('edit', 'move')): 'move',
 
-            frozenset('delete', 'add'): 'edit',
-            frozenset('delete', 'move_dest'): 'edit',
+            frozenset(('delete', 'add')): 'edit',
+            frozenset(('delete', 'move_dest')): 'edit',
 
-            frozenset('move', 'add'): 'edit',
-            frozenset('move', 'move_dest'): 'edit',
+            frozenset(('move', 'add')): 'edit',
+            frozenset(('move', 'move_dest')): 'edit',
 
-            frozenset('move_dest', 'edit'): 'move_dest',
-            frozenset('move_dest', 'delete'): 'none',
-            frozenset('move_dest', 'move'): 'none',
+            frozenset(('move_dest', 'edit')): 'move_dest',
+            frozenset(('move_dest', 'delete')): 'none',
+            frozenset(('move_dest', 'move')): 'none',
         }
         def getExpectedChangeType(opChain: typing.Iterable) -> str:
             
@@ -806,8 +806,8 @@ class P4RepoTest(VCSTestBase):
         expectedResults = {}
         for firstCommitIndex in range(1, len(commits)):
             for secondCommitIndex in range(0, firstCommitIndex):
-                expectedResult = expectedResults.set_default(
-                    frozenset(firstCommitIndex, secondCommitIndex), {})
+                expectedResult = expectedResults.setdefault(
+                    frozenset((firstCommitIndex, secondCommitIndex)), {})
                 
 
         #for opChain in opChains:

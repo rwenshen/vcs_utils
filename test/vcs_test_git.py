@@ -2,9 +2,9 @@ from pathlib import Path
 import unittest
 
 from .vcs_test_base import VCSTestBase
-from ..logger import *
-from ..change import ChangeType, Change
-from ..commit import CommitErrorCode
+from ..common.logger import *
+from ..common.change import ChangeType, Change
+from ..common.commit import CommitErrorCode
 from ..git import *
 
 

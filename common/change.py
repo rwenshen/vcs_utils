@@ -2,11 +2,11 @@ from enum import Enum, auto
 from pathlib import Path
 import typing
 
-from .common.logger import *
+from .logger import *
 
 
 class ChangeErrorCode(Enum):
-    path_absolute = 1000 # 0-999, reserved for vcs specific
+    path_absolute = 0x1000 # 0-0xfff, reserved for vcs specific
     missing_destination = auto()
     add_existent_file = auto()
 

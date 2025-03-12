@@ -2,16 +2,17 @@ from enum import Enum, auto
 import typing
 from abc import ABC, abstractmethod
 
-from .common.logger import *
+from .logger import *
 from .change import Change, ChangeErrorCode
 
 
 class CommitErrorCode(Enum):
+    # commit error category
     writable = ChangeErrorCode.last.value
     readonly = auto()
     wrongDepot = auto()
 
-    common_commit_last = auto()
+    last = auto()
 
 
 VcsHelperError.registerError('common',

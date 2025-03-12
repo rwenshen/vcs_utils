@@ -3,15 +3,17 @@ from pathlib import Path
 import typing
 from abc import ABC, abstractmethod
 
-from .common.logger import *
-from .change import Change
+from .logger import *
+from .change import ChangeErrorCode
 from .commit import Commit
 
 
 class RepoErrorCode(Enum):
+    # repo error category
     root_unset = 1
     root_inexistent = auto()
 
+    last = auto()
 
 VcsHelperError.registerError('common',
             ErrorCategory.repo, RepoErrorCode.root_unset,
