@@ -21,6 +21,7 @@ VcsHelperError.registerError('common',
             ErrorCategory.commit, CommitErrorCode.readonly,
             'Commit "{description}" must be readonly!')
 
+
 class Commit(ABC):
     ''' A commit.
 Commit.commitRef is VCS specific data in python (e.g. change spec in P4Python, \
@@ -137,5 +138,5 @@ SHA in Git).'''
 
     @abstractmethod
     def iterDiffs(self,
-            diffBase: typing.Optional['Commit']) -> typing.Iterator[Change]:
+            fromCommit: 'Commit') -> typing.Iterator[Change]:
         raise NotImplemented

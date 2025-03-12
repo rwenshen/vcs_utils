@@ -62,6 +62,9 @@ changeContent: content to apply to file to be changed, current support full cont
                                     exceptionOrExit=True)
         self.__fullContent = changeContent
 
+    def __str__(self):
+        return f'<Change {self.description}>'
+
     def applyChange(self, absPath: Path, destAbsPath: typing.Optional[Path]):
         error = VcsHelperError('common', ErrorCategory.commit)
 
@@ -121,10 +124,10 @@ changeContent: content to apply to file to be changed, current support full cont
 
     @property
     def description(self) -> str:
-        if self.changeType in [ChangeType.add, ChangeType.delete, ChangeType.edit]:
-            return f'{self.changeType.name} {self.path}'
-        else:
-            return f'{self.changeType.name} {self.path} to {self.destPath}'
+        s = f'{self.changeType.name} {self.path}'
+        if self.changeType == ChangeType.move:
+            s += f' to {self.destPath}'
+        return s
 
     @property
     def path(self):

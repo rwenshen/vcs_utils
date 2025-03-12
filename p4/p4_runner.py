@@ -39,7 +39,8 @@ class P4RunErrorCode(Enum):
     remote_error_last = auto()
 
     # ErrorCategory.commit
-    add = 1
+    # start from 1000
+    add = CommitErrorCode.common_commit_last.value
     edit = auto()
     delete = auto()
     move = auto()
@@ -53,7 +54,7 @@ class P4RunErrorCode(Enum):
     commit_error_last = auto()
 
     # ErrorCategory.file_stat
-    info = 1
+    info = 2000
     where = auto()
     fstat = auto()
     opened = auto()
@@ -62,8 +63,8 @@ class P4RunErrorCode(Enum):
     file_stat_last = auto()
 
     # ErrorCategory.tag
-    fetch_label = 1
-    save_label = 2
+    fetch_label = 3000
+    save_label = auto()
 
     tag_last = auto()
 

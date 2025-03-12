@@ -118,7 +118,6 @@ class P4Repo(Repo):
         if isinstance(result, VcsHelperErrorWrapper):
             return result.raiseError(exceptionOrExit=exceptionOrExit)
         self.__info =  result[0]
-        VcsHelperLogger.info(str(self.__info))
         super().__init__(self.clientRoot)
 
         self.__description = f'P4 Repo\n\tPort: {self.p4.port}\n'

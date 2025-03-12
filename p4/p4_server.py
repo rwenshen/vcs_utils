@@ -7,7 +7,7 @@ from ..common.logger import *
 
 class P4Server:
 
-    def __init__(self, root: Path, user: str='admin', port: str='localhost:1666'):
+    def __init__(self, root: Path, user: str='admin', port: str='1666'):
         self.p4d = None
         self.p4 = None
         
@@ -31,6 +31,8 @@ class P4Server:
             root.mkdir(parents=True, exist_ok=True)
 
         # start
+        root = str(root)
+        print([p4dCmd, '-r', root, '-p', port])
         self.p4d = subprocess.Popen([p4dCmd, '-r', root, '-p', port])
 
         # add user
@@ -40,7 +42,7 @@ class P4Server:
         self.p4.client = 'not_set'
         self.p4.connect()
         assert self.p4.connected()
-        
+
     def __del__(self):
         if self.p4d is not None:
             self.p4d.terminate()
