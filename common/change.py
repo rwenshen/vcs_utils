@@ -6,6 +6,7 @@ from .logger import *
 
 
 class ChangeErrorCode(Enum):
+    # commit error category
     path_absolute = 0x1000 # 0-0xfff, reserved for vcs specific
     missing_destination = auto()
     add_existent_file = auto()

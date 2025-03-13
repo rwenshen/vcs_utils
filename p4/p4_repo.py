@@ -494,15 +494,15 @@ class P4Repo(Repo):
         return P4Commit(self, change)
 
     @checkClient.__func__(exceptionOrExit=True)
-    def getNewCommit(self, message: str) -> Commit:
+    def getNewCommit(self, message: str) -> Commit | None:
         change = p4Fetch(self.p4, 'change')
         if isinstance(change, VcsHelperErrorWrapper):
-            change.raiseError(exceptionOrExit=True)
+            return None
         change['Description'] = message
         return P4Commit(self, change)
 
     @checkClient.__func__(exceptionOrExit=True)
-    def getTopCommit(self) -> Commit:
+    def getTopCommit(self) -> Commit | None:
         result = p4Run(self.p4, 'changes',
             getP4ValidLocalPath(self.root.joinpath('...')),
             **{
@@ -511,7 +511,9 @@ class P4Repo(Repo):
             }
         )
         if isinstance(result, VcsHelperErrorWrapper):
-            result.raiseError(exceptionOrExit=True)
+            return None
+        if len(result) == 0:
+            return None
         changelist = result[0]['change']
         return self.getCommit(changelist)
 

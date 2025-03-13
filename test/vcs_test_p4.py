@@ -57,39 +57,6 @@ class P4RepoTest(VCSTestBase):
     def repo(self):
         return self.__class__.repo
 
-    # common functions
-    def checkAddFile(self, commit, fileName: str, content: str, parent: Path | None=None) -> Path:
-        root = clientRoot
-        if parent is not None:
-            root = root.joinpath(parent)
-            root.mkdir(exist_ok=True, parents=True)
-        txtFile = root.joinpath(fileName)
-        result = commit.changeFile(
-            Change(txtFile.relative_to(clientRoot), ChangeType.add,
-                changeContent = content
-            ))
-        self.assertEqual(result, 0)
-        return txtFile
-
-    def checkDeleteFile(self, commit, fileName: str, parent: Path | None=None) -> Path:
-        root = clientRoot
-        if parent is not None:
-            root = root.joinpath(parent)
-        txtFile = root.joinpath(fileName)
-        self.assertTrue(txtFile.exists())
-        result = commit.changeFile(
-            Change(txtFile.relative_to(clientRoot), ChangeType.delete))
-        self.assertEqual(result, 0)
-        self.assertFalse(txtFile.exists())
-        return txtFile
-
-    def assertSaveSubmit(self, commit):
-        result = commit.save()
-        self.assertEqual(result, 0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
-
     # create server and repo
     def test_01_1_createServer(self):
         VcsHelperLogger.info(f'[TEST] Create P4 server at {str(p4LocalServerRoot)}')
@@ -157,45 +124,17 @@ class P4RepoTest(VCSTestBase):
         clientRoot.mkdir()
 
     # changelist
-    def test_02_01_newChangelist(self):
-        VcsHelperLogger.info('[TEST] Add a@1%2#3.txt...')
-        commit = self.repo.getNewCommit('Init commit.')
-        self.checkAddFile(commit, 'a@1%2#3.txt', 'Hello txt a@1%2#3')
-        self.assertSaveSubmit(commit)
+    def test_02_01_initCommit(self):
+        self.implTest_commit_initCommit(self.repo)
 
     def test_02_02_writableCommit(self):
-        VcsHelperLogger.info('[TEST] Assert writable commit...')
-        commit = self.repo.getTopCommit()
-        result = commit.changeFile(
-            Change(Path('a@1%2#3.txt'), ChangeType.edit, changeContent='tmp'))
-        errorCode = (ErrorCategory.commit.value << 16) | CommitErrorCode.writable.value
-        self.assertEqual(result, errorCode)
+        self.implTest_commit_writableCommit(self.repo)
 
     def test_02_03_saveCommitSkip(self):
-        VcsHelperLogger.info('[TEST] Skip commit save, add b.txt...')
-        commit = self.repo.getNewCommit('The 2nd commit.')
-        result = commit.save()
-        self.assertNotEqual(result, 0)
-        self.checkAddFile(commit, 'b@1%2#3.txt', 'Hello txt b@1%2#3')
-        result = commit.save()
-        self.assertEqual(result, 0)
-        result = commit.save()
-        self.assertNotEqual(result,0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
+        self.implTest_commit_saveCommitSkip(self.repo)
 
     def test_02_04_directlySubmit(self):
-        VcsHelperLogger.info('[TEST] Submit directly, edit b@1%2#3.txt...')
-        commit = self.repo.getNewCommit('Edit b@1%2#3.txt')
-        result = commit.changeFile(
-            Change(Path('b@1%2#3.txt'), ChangeType.edit,
-                changeContent='Hello txt b@1%2#3, 2nd'
-            ))
-        self.assertEqual(result, 0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
+        self.implTest_commit_directlySubmit(self.repo)
 
     def test_02_05_submissionFailure(self):
         VcsHelperLogger.info('[TEST] Submission Failure...')
@@ -283,7 +222,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(commit, self.repo.getTopCommit())
         # then remove
         commit = self.repo.getNewCommit('delete x@1%2#3.txt')
-        self.checkDeleteFile(commit, 'x@1%2#3.txt')
+        self.checkDeleteFile(commit, 'x@1%2#3.txt', clientRoot)
         result = commit.submit()
         self.assertEqual(result, 0)
         self.assertEqual(commit, self.repo.getTopCommit())
@@ -725,30 +664,31 @@ class P4RepoTest(VCSTestBase):
 
         def handleOp(commit, op, name):
             if op == 'add':
-                self.checkAddFile(commit, name, f'Add {name}', parent=commitRoot)
+                self.checkAddFile(commit, name, f'Add {name}',
+                                  localRoot=clientRoot, parent=commitRoot)
             elif op == 'edit':
-                result = commit.changeFile(Change(Path(commitRoot+name),
+                result = commit.changeFile(Change(commitRoot.joinpath(name),
                             ChangeType.edit, changeContent=f'Edit {name}'))
                 self.assertEqual(result, 0)
             elif op == 'delete':
-                self.checkDeleteFile(commit, name, parent=commitRoot)
+                self.checkDeleteFile(commit, name, clientRoot, parent=commitRoot)
             elif op == 'move':
                 index = len(moveDestTmpFiles)
                 destName = f'move_dest_tmp{index}'
                 moveDestTmpFiles.append(destName)
-                result = commit.changeFile(Change(Path(commitRoot+name),
-                            ChangeType.move, Path(commitRoot+destName),
+                result = commit.changeFile(Change(commitRoot.joinpath(name),
+                            ChangeType.move, commitRoot.joinpath(destName),
                             changeContent=f'Move from {name} to {destName}'))
                 self.assertEqual(result, 0)
             elif op == 'move_dest':
                 srcName = moveTmpFiles.pop()
-                result = commit.changeFile(Change(Path(commitRoot+srcName),
-                            ChangeType.move, Path(commitRoot+name),
+                result = commit.changeFile(Change(commitRoot.joinpath(srcName),
+                            ChangeType.move, commitRoot.joinpath(name),
                             changeContent=f'Move from {srcName} to {name}'))
                 self.assertEqual(result, 0)
 
         commits = []
-        commitRoot = 'diff_full_test/'
+        commitRoot = Path('diff_full_test')
         # init commit
         commits.append(self.repo.getNewCommit('Init commit for diff full test.'))
             # add init files
@@ -756,12 +696,14 @@ class P4RepoTest(VCSTestBase):
             name = opChain[-1]
             opChain = opChain[:-1]
             if opChain[0] in ['edit', 'delete', 'move']:
-                self.checkAddFile(commits[0], name, f'Init {name}\n', parent=commitRoot)
+                self.checkAddFile(commits[0], name, f'Init {name}\n',
+                                        localRoot=clientRoot, parent=commitRoot)
             # add a temp move src
         for moveTmpFile in moveTmpFiles:
-            self.checkAddFile(commits[0], moveTmpFile, f'Init {moveTmpFile}\n', parent=commitRoot)
+            self.checkAddFile(commits[0], moveTmpFile, f'Init {moveTmpFile}\n',
+                                        localRoot=clientRoot, parent=commitRoot)
             #commit
-        self.assertSaveSubmit(commits[0])
+        self.assertSaveSubmit(self.repo, commits[0])
 
         # loop to commit all changes
         for repeatIndex in range(chainLength):
@@ -775,7 +717,7 @@ class P4RepoTest(VCSTestBase):
                 name = opChain[-1]
                 op = opChain[repeatIndex]
                 handleOp(commit, op, name)
-            self.assertSaveSubmit(commit)
+            self.assertSaveSubmit(self.repo, commit)
 
         # test
         VcsHelperLogger.info('[TEST] iter diffs, full test...')
@@ -822,7 +764,6 @@ class P4RepoTest(VCSTestBase):
         # hold the test, to keep the test p4 server and repo
         input("End of the test; you can check p4 repo at 127.0.0.1:1666. Press Enter to continue...")
 
-# TODO: commit iter diff
 # TODO: P4 iter changes
 # TODO: partial copyup / mergedown
 # TODO: undo copyup / mergedown? in repo-sync?

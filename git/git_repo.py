@@ -488,13 +488,13 @@ class GitRepo(Repo):
         except:
             return None
 
-    def getNewCommit(self, mesg: str) -> Commit:
+    def getNewCommit(self, mesg: str) -> Commit | None:
         try:
             return GitCommit(self, mesg=mesg)
         except:
             return None
 
-    def getTopCommit(self) -> typing.Optional[Commit]:
+    def getTopCommit(self) -> typing.Optional[Commit] | None:
         remoteBranch = self.__getTackingBranch()
         if remoteBranch is None:
             return None

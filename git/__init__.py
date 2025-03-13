@@ -6,8 +6,8 @@ try:
     import git
 except ImportError:
     error = VcsHelperError('git', ErrorCategory.ungrouped)
-    errorCode = error.raiseError(1)
-    exit(errorCode)
+    VcsHelperError.raiseType = VcsHelperError.RaiseType.exit_code
+    error.raiseError(1, exceptionOrExit=True)
 
 __all__ = [
     'GitRepo',

@@ -7,8 +7,8 @@ try:
     import P4
 except ImportError:
     error = VcsHelperError('p4', ErrorCategory.ungrouped)
-    errorCode = error.raiseError(1)
-    exit(errorCode)
+    VcsHelperError.raiseType = VcsHelperError.RaiseType.exit_code
+    error.raiseError(1, exceptionOrExit=True)
 
 from . import p4_runner
 

@@ -48,13 +48,7 @@ class GitRepoTest(VCSTestBase):
     def tearDown(self):
         pass
 
-    def checkAddFile(self, commit, fileName: str, content: str) -> Path:
-        txtFile = Path(fileName)
-        result = commit.changeFile(
-            Change(txtFile, ChangeType.add, changeContent=content))
-        self.assertEqual(result, 0)
-        return txtFile
-
+    # init repo / clone repo 
     def test_01_01_createRepo(self):
         VcsHelperLogger.info(f'Create git repository at {str(gitRemote)}.')
         self.__class__.remoteRepo = GitRepo.initRepo(
@@ -67,49 +61,32 @@ class GitRepoTest(VCSTestBase):
 
     def test_01_02_cloneRepo(self):
         VcsHelperLogger.info(f'Clone git repository from {str(gitRemoteSubList[0])}'\
-            f' at {str(localDepotRoot)}.')
+            f' at {str(sub1TmpRoot)}.')
         self.__class__.repo = GitRepo.cloneRepo(
             sub1TmpRoot, gitRemoteSubList[0])
 
-    # first commit
-    def test_02_01_firstCommit(self):
-        VcsHelperLogger.info('\nAdd a.txt...')
-        # new commit (stage files)
-        commit = self.repo.getNewCommit('Init commit.')
+    # commits
+    def test_02_01_initCommit(self):
+        # common init commit
+        self.implTest_commit_initCommit(self.repo)
+
+        # single writable commit
+        commit = self.repo.getNewCommit('1')
         self.assertTrue(commit.isWritable)
-        result = commit.save()
-        self.assertNotEqual(result, 0)
-        # single new commit
-        c = self.repo.getNewCommit('tmp')
+        c = self.repo.getNewCommit('2')
         self.assertIsNone(c)
-        # author
+        # git commit author and email
         authorName = 'test'
         authorEmail = 'test@test'
         self.repo.setAuthor(authorName, authorEmail)
         self.assertEqual(commit.author, authorName)
         self.assertEqual(commit.email, authorEmail)
-        # add
-        self.checkAddFile(commit, 'a.txt', 'Hello txt a')
-
-        # save (git commit to local branch)
-        result = commit.save()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getCurrentCommit())
-
-        # submit (git push to remote)
-        self.assertIsNone(self.repo.getTopCommit())
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
+        del commit
 
     def test_02_02_writableCommit(self):
-        VcsHelperLogger.info('\nAssert writable commit...')
-        commit = self.repo.getTopCommit()
-        result = commit.changeFile(
-            Change(Path('a.txt'), ChangeType.edit, changeContent='tmp'))
-        errorCode = (ErrorCategory.commit.value << 16) | CommitErrorCode.writable.value
-        self.assertEqual(result, errorCode)
-        # change after save
+        # common test
+        self.implTest_commit_writableCommit(self.repo)
+        # git reset local commit (saved commit)
         currentCommit = self.repo.getCurrentCommit()
         commit = self.repo.getNewCommit('tmp')
         result = commit.changeFile(
@@ -126,33 +103,12 @@ class GitRepoTest(VCSTestBase):
         self.assertEqual(currentCommit, self.repo.getCurrentCommit())
 
     def test_02_03_saveCommitSkip(self):
-        VcsHelperLogger.info('\nSkip commit save, add b.txt...')
-        commit = self.repo.getNewCommit('The 2nd commit.')
-        result = commit.save()
-        self.assertNotEqual(result, 0)
-        self.checkAddFile(commit, 'b.txt', 'Hello txt b')
-        result = commit.save()
-        self.assertEqual(result, 0)
-        result = commit.save()
-        self.assertNotEqual(result,0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
+        self.implTest_commit_saveCommitSkip(self.repo)
 
     def test_02_04_directlySubmit(self):
-        VcsHelperLogger.info('\nSubmit directly, edit b.txt...')
-        commit = self.repo.getNewCommit('Edit b.txt')
-        txtB = Path('b.txt')
-        result = commit.changeFile(
-            Change(txtB, ChangeType.edit,
-                changeContent='Hello txt b, 2nd'
-            ))
-        self.assertEqual(result, 0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, self.repo.getTopCommit())
+        self.implTest_commit_directlySubmit(self.repo)
 
-#    def test_02_06_clearPending(self):
+#    def test_02_05_clearPending(self):
 #        VcsHelperLogger.info('\nClear pendings...')
 #
 #        # create commit
@@ -168,3 +124,6 @@ class GitRepoTest(VCSTestBase):
 #        self.assertEqual(result, 0)
 #        changes = list(commit.iterChanges())
 #        self.assertEqual(len(changes), 0)
+
+
+# TODO submodule
