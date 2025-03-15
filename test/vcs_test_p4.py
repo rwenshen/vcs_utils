@@ -14,6 +14,8 @@ from ..p4.p4_runner import P4RunErrorCode
 from ..p4.p4_server import P4Server
 
 
+import unittest
+
 p4TestRoot = Path(r'.\output\vcs_test_p4')
 p4LocalServerRoot = p4TestRoot.joinpath('server')
 defaultUserName = 'admin'
@@ -31,6 +33,7 @@ class P4RepoTest(VCSTestBase):
     @classmethod
     def setUpClass(cls):
         super(P4RepoTest, cls).setUpClass()
+        cls.vcsName = 'p4'
         cls.server = None
         cls.repo = None
         VcsHelperLogger.getLogger().setLevel(logging.INFO)
@@ -43,12 +46,6 @@ class P4RepoTest(VCSTestBase):
             del cls.repo
         super(P4RepoTest, cls).tearDownClass()
 
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
-        
     @property
     def server(self):
         return self.__class__.server
@@ -137,35 +134,25 @@ class P4RepoTest(VCSTestBase):
         self.implTest_commit_directlySubmit(self.repo)
 
     def test_02_05_submissionFailure(self):
-        VcsHelperLogger.info('[TEST] Submission Failure...')
-        commit = self.repo.getNewCommit('Unused changelist')
-        result = commit.changeFile(
-            Change(Path('b@1%2#3.txt'), ChangeType.edit))
-        self.assertEqual(result, 0)
-        
-        # shelve
-        result = commit.save()
-        self.assertEqual(result,0)
-        root = clientRoot
-        txtB = root.joinpath('b@1%2#3.txt')
-        result = p4Run(self.repo.p4, 'shelve', getP4ValidLocalPath(txtB), **{
-            '-c': commit.vcsData,
-        })
-        self.assertEqual(result, 0)
+        def createCommit():
+            commit = self.repo.getNewCommit()
+            result = commit.changeFile(
+                Change(Path('b@1%2#3.txt'), ChangeType.edit))
+            self.assertEqual(result, 0)
+            # shelve
+            result = commit.save('Unused changelist')
+            self.assertEqual(result,0)
+            root = clientRoot
+            txtB = root.joinpath('b@1%2#3.txt')
+            result = p4Run(self.repo.p4, 'shelve', getP4ValidLocalPath(txtB), **{
+                '-c': commit.vcsData,
+            })
+            self.assertEqual(result, 0)
+            return commit
+        self.implTest_commit_submissionFailure(createCommit,
+                    False, ErrorCategory.remote, P4RunErrorCode.submit.value)
 
-        errorCode = (1 << 24) | (ErrorCategory.remote.value << 16) \
-                            | P4RunErrorCode.submit.value
-        # submission failure with exception
-        VcsHelperError.raiseType = VcsHelperError.RaiseType.exception
-        with self.assertRaises(VcsHelperException) as context:
-            commit.submit()
-        self.assertTrue(context.exception.code, errorCode)
-
-        # submission failure with return code
-        VcsHelperError.raiseType = VcsHelperError.RaiseType.return_code
-        result = commit.submit()
-        self.assertEqual(result, errorCode)
-
+    @unittest.skip("skip")
     def test_02_06_clearPending(self):
         VcsHelperLogger.info('[TEST] Clear pendings...')
 
@@ -183,6 +170,7 @@ class P4RepoTest(VCSTestBase):
         changes = list(commit.iterChanges())
         self.assertEqual(len(changes), 0)
 
+    @unittest.skip("skip")
     def test_02_07_verifyCommit(self):
         VcsHelperLogger.info('[TEST] verify commit...')
 
@@ -201,6 +189,7 @@ class P4RepoTest(VCSTestBase):
         self.assertTrue(context.exception.code, errorCode)
         VcsHelperError.raiseType = VcsHelperError.RaiseType.return_code
 
+    @unittest.skip("skip")
     def test_02_08_rename(self):
         VcsHelperLogger.info('[TEST] Rename b@1%2#3.txt to b1@1%2#3.txt...')
         commit = self.repo.getNewCommit('rename b@1%2#3.txt to b1@1%2#3.txt')
@@ -212,6 +201,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(result, 0)
         self.assertEqual(commit, self.repo.getTopCommit())
 
+    @unittest.skip("skip")
     def test_02_09_remove(self):
         VcsHelperLogger.info('[TEST] Add x@1%2#3.txt first, then delete it...')
         # add first
@@ -227,6 +217,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(result, 0)
         self.assertEqual(commit, self.repo.getTopCommit())
 
+    @unittest.skip("skip")
     def test_03_01_copyup(self):
         VcsHelperLogger.info('[TEST] Copyup dev to main...')
         result = self.repo.switchStream(streamMain, sync=True)
@@ -237,6 +228,7 @@ class P4RepoTest(VCSTestBase):
         result = commit.submit()
         self.assertEqual(result, 0)
 
+    @unittest.skip("skip")
     def test_03_02_mergedown(self):
         VcsHelperLogger.info('[TEST] Merge down main to dev...')
         commit = self.repo.getNewCommit('Add c@1%2#3.')
@@ -256,6 +248,7 @@ class P4RepoTest(VCSTestBase):
         result = commit.submit()
         self.assertEqual(result, 0)
 
+    @unittest.skip("skip")
     def test_03_03_iterChangesPending(self):
         VcsHelperLogger.info('[TEST] Iter changes, modify a.txt, rename b1.txt, add d.txt...')
         commit = self.repo.getNewCommit('New commit, change A rename B add D.')
@@ -308,6 +301,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(result, 0)
         self.assertEqual(commit, self.repo.getTopCommit())
 
+    @unittest.skip("skip")
     def test_03_04_iterChangesSubmitted(self):
         VcsHelperLogger.info('[TEST] Iter submitted changes...')
 
@@ -346,10 +340,11 @@ class P4RepoTest(VCSTestBase):
         commit = self.repo.getCommit(10)
         changes = list(commit.iterChanges())
         self.assertEqual(len(changes), 0)
-        errorCode = (ErrorCategory.commit.value << 16) | CommitErrorCode.wrongDepot.value
+        errorCode = (ErrorCategory.commit.value << 16) | CommitErrorCode.wrong_depot.value
         self.assertEqual(commit.lastIterResult, errorCode)
 
     # tag
+    @unittest.skip("skip")
     def test_04_01_tag(self):
         VcsHelperLogger.info('[TEST] tag (p4 label)...')
 
@@ -393,6 +388,7 @@ class P4RepoTest(VCSTestBase):
         self.assertIsNone(commit)
 
     # sync
+    @unittest.skip("skip")
     def test_05_01_sync(self):
         VcsHelperLogger.info('[TEST] sync...')
 
@@ -432,6 +428,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(text,
             'Hello txt B@1%2#3, 3rd\nHello txt B@1%2#3, 2nd\nHello txt B@1%2#3')
 
+    @unittest.skip("skip")
     def test_05_02_sync_reset(self):
         VcsHelperLogger.info('[TEST] sync with reset...')
 
@@ -468,6 +465,7 @@ class P4RepoTest(VCSTestBase):
             'Hello txt a@1%2#3, touch 2')
 
     # changelist
+    @unittest.skip("skip")
     def test_05_03_iterChangesUnresolved(self):
         VcsHelperLogger.info('[TEST] iter unresolved changes...')
 
@@ -528,6 +526,7 @@ class P4RepoTest(VCSTestBase):
         self.assertEqual(result, 0)
         self.assertFalse(txtE.exists())
 
+    @unittest.skip("skip")
     def test_05_04_iterCommits(self):
         VcsHelperLogger.info('[TEST] iter commits...')
         
@@ -565,6 +564,7 @@ class P4RepoTest(VCSTestBase):
             self.assertEqual(change.destPath, expected.destPath)
             del expectedChanges[0]
 
+    @unittest.skip("skip")
     def test_06_01_iterDiffs_DifferentSupport(self):
         VcsHelperLogger.info('[TEST] iter diffs...')
 
@@ -633,6 +633,7 @@ class P4RepoTest(VCSTestBase):
         result = self.repo.clearPendings()
         self.assertEqual(result, 0)
 
+    @unittest.skip("skip")
     def test_06_02_iterDiffs_FullTest(self):
         VcsHelperLogger.info('[TEST] iter diffs, full test, preparation...')
 

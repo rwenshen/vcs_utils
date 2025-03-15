@@ -69,7 +69,7 @@ class P4RunErrorCode(Enum):
     tag_last = auto()
 
 VcsHelperError.registerError('p4',
-    ErrorCategory.ungrouped, 0,
+    ErrorCategory.ungrouped, 0xffff,
     '{error}')
 
 VcsHelperError.registerError('p4',
@@ -190,7 +190,7 @@ def processP4Exception(e,
             'p4', errorCategory, errorCode, error=e)
     else:
         errorWrapper = VcsHelperErrorWrapper(
-            'p4', ErrorCategory.ungrouped, 0, error=e)
+            'p4', ErrorCategory.ungrouped, 0xffff, error=e)
     return errorWrapper
 
 def processP4FileOperationResults(results, format: str) -> int:

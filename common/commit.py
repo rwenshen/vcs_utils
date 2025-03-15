@@ -10,7 +10,11 @@ class CommitErrorCode(Enum):
     # commit error category
     writable = ChangeErrorCode.last.value
     readonly = auto()
-    wrongDepot = auto()
+    wrong_depot = auto()
+    already_saved = auto()
+    nothing_to_save = auto()
+    not_saved = auto()
+    already_submitted = auto()
 
     last = auto()
 
@@ -21,7 +25,18 @@ VcsHelperError.registerError('common',
 VcsHelperError.registerError('common',
             ErrorCategory.commit, CommitErrorCode.readonly,
             'Commit "{description}" must be readonly!')
-
+VcsHelperError.registerError('common',
+            ErrorCategory.commit, CommitErrorCode.already_saved,
+            'Commit "{description}" has been saved! The saving is skipped.')
+VcsHelperError.registerError('common',
+            ErrorCategory.commit, CommitErrorCode.nothing_to_save,
+            'Commit "{description}" is empty, nothing to be saved!')
+VcsHelperError.registerError('common',
+            ErrorCategory.commit, CommitErrorCode.not_saved,
+            'Submission of commit "{description}" failed! It has NOT been saved!')
+VcsHelperError.registerError('common',
+            ErrorCategory.commit, CommitErrorCode.already_submitted,
+            'Submission of commit "{description}" failed! It has been submitted!')
 
 class Commit(ABC):
     ''' A commit.
@@ -82,51 +97,113 @@ SHA in Git).'''
     def email(self) -> str:
         raise NotImplemented
 
+    def checkStatus(self, status: bool, expected: bool, 
+            errorCode: CommitErrorCode, **kwargs) -> int:
+        if expected != status:
+            return self.__commonCommitError.raiseError(
+                    errorCode, **kwargs)
+        return 0
+
     @property
     @abstractmethod
     def isWritable(self) -> bool:
         raise NotImplemented
 
-    @staticmethod
-    def checkWritable(exceptionOrExit: bool=False,
-            returnResult=VcsHelperError.RaiseType.return_code):
-        def decorator(func):
-            def wrapper(self, *args, **kwargs):
-                if not self.isWritable:
-                    return self.__commonCommitError.raiseError(
+    def checkWritable(self, exceptionOrExit: bool=False,
+            returnResult=VcsHelperError.RaiseType.return_code) -> int:
+        return self.checkStatus(self.isWritable, True,
                             CommitErrorCode.writable,
                             description=self.description.replace('\n', '\\n'),
                             exceptionOrExit=exceptionOrExit,
                             returnResult=returnResult)
-                return func(self, *args, **kwargs)
-            return wrapper
-        return decorator
 
-    @staticmethod
-    def checkReadonly(exceptionOrExit: bool=False,
-            returnResult=VcsHelperError.RaiseType.return_code):
-        def decorator(func):
-            def wrapper(self, *args, **kwargs):
-                if self.isWritable:
-                    return self.__commonCommitError.raiseError(
+    def checkReadOnly(self, exceptionOrExit: bool=False,
+            returnResult=VcsHelperError.RaiseType.return_code) -> int:
+        return self.checkStatus(self.isWritable, False,
                             CommitErrorCode.readonly,
                             description=self.description.replace('\n', '\\n'),
                             exceptionOrExit=exceptionOrExit,
                             returnResult=returnResult)
-                return func(self, *args, **kwargs)
-            return wrapper
-        return decorator
 
+    @property
     @abstractmethod
+    def hasSaved(self) -> bool:
+        raise NotImplemented
+
+    @property
+    @abstractmethod
+    def isEmpty(self) -> bool:
+        raise NotImplemented
+
+    def checkSavable(self) -> int:
+        errorCode = self.checkStatus(self.hasSaved, False,
+                            CommitErrorCode.already_saved,
+                            description=self.description.replace('\n', '\\n'))
+        if errorCode != 0:
+            return errorCode
+        return self.checkStatus(self.isEmpty, False,
+                            CommitErrorCode.nothing_to_save,
+                            description=self.description.replace('\n', '\\n'))
+
+    @property
+    @abstractmethod
+    def hasSubmitted(self) -> bool:
+        raise NotImplemented
+
+    def checkSubmittable(self) -> int:
+        # impossible unsaved
+        errorCode = self.checkStatus(self.hasSaved, True,
+                            CommitErrorCode.not_saved,
+                            description=self.description.replace('\n', '\\n'),
+                            exceptionOrExit=True,
+                            returnResult=VcsHelperError.RaiseType.exception)
+        if errorCode != 0:
+            return errorCode
+        # check empty
+        errorCode = self.checkStatus(self.isEmpty, False,
+                            CommitErrorCode.nothing_to_save,
+                            description=self.description.replace('\n', '\\n'))
+        if errorCode != 0:
+            return errorCode
+        # check not submitted
+        return self.checkStatus(self.hasSubmitted, False,
+                            CommitErrorCode.already_submitted,
+                            description=self.description.replace('\n', '\\n'))
+
     def changeFile(self, change: Change) -> int:
-        raise NotImplemented
+        errorCode = self.checkWritable()
+        if errorCode != 0:
+            return errorCode
+        return self.changeFileImpl(change)
 
     @abstractmethod
-    def save(self) -> int:
+    def changeFileImpl(self, change: Change) -> int:
         raise NotImplemented
 
+    def save(self, message: str) -> int:
+        errorCode = self.checkSavable()
+        if errorCode != 0:
+            return errorCode
+        return self.saveImpl(message)
+    
     @abstractmethod
-    def submit(self) -> int:
+    def saveImpl(self, message: str) -> int:
+        raise NotImplemented
+
+    def submit(self, message: str|None = None) -> int:
+        if not self.hasSaved:
+            if message is None:
+                message = "<New Commit>"
+            errorCode = self.save(message)
+            if errorCode != 0:
+                return errorCode
+        errorCode = self.checkSubmittable()
+        if errorCode != 0:
+            return errorCode
+        return self.submitImpl()
+
+    @abstractmethod
+    def submitImpl(self) -> int:
         raise NotImplemented
 
     @abstractmethod

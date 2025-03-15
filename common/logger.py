@@ -106,8 +106,16 @@ class VcsHelperError:
         if isinstance(errorCode, Enum):
             errorCode = errorCode.value
         assert errorCode not in errorDict
-        assert errorCode >= 0 and errorCode <= 0xffff
+        assert errorCode > 0 and errorCode <= 0xffff
         errorDict[errorCode] = messageFormat
+
+    @staticmethod
+    def calcErrorCode(vcsName: str, category: ErrorCategory, errorCode: int):
+        assert vcsName in VcsHelperError.__registeredVcs, \
+            'Unregistered VCS {vcsName}!'
+        assert errorCode > 0 and errorCode <= 0xffff
+        return (VcsHelperError.__registeredVcs[vcsName] << 24) | \
+            (category.value << 16) | errorCode
 
     def __init__(self, vcsName: str, category: ErrorCategory):
         assert vcsName in VcsHelperError.__registeredVcs, \
@@ -117,7 +125,7 @@ class VcsHelperError:
         self.__errorCode |= category.value << 16
         self.__errorDict = VcsHelperError.__registeredErrors\
                                 .get(vcsName, {}).get(category, {})
-    
+
     def raiseError(self, errorCode: typing.Union[int, Enum],
             exceptionOrExit: bool=False,
             returnResult=RaiseType.return_code,

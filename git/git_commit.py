@@ -11,9 +11,8 @@ class GitCommitErrorCode(Enum):
     add_failure = CommitErrorCode.last.value
     move_failure = auto()
     remove_failure = auto()
-    multiple_writable = auto()
     commit_failure = auto()
-    nothing_to_commit = auto()
+    head_detached = auto()
 
 VcsHelperError.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.add_failure,
@@ -25,71 +24,41 @@ VcsHelperError.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.remove_failure,
             'Failed to delete file "{path}"!')
 VcsHelperError.registerError('git',
-            ErrorCategory.commit, GitCommitErrorCode.multiple_writable,
-            'Only one writable commit is allowed!')
-VcsHelperError.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.commit_failure,
             'Failed to commit!')
-VcsHelperError.registerError('git',
-            ErrorCategory.commit, GitCommitErrorCode.nothing_to_commit,
-            'Nothing to commit!')
 
 
 class GitCommit(Commit):
 
-    __defaultIndexUsed = False
-
-    def __init__(self, repo, 
-            commit: typing.Optional[git.Commit]=None,
-            mesg: typing.Optional[str]=None,
-            remoteName: typing.Optional[str]=None):
+    def __init__(self, repo: 'GitRepo', 
+            commit: typing.Optional[git.Commit]=None):
         commitError = VcsHelperError('git', ErrorCategory.commit)
         # create new git index for writable commit
         if commit is None:
             commit = repo.repo.index
         super().__init__(repo, commit)
-        self.__remoteName = remoteName
-        if not self.__isACommit:
-            # verify there is only one writable commit
-            if GitCommit.__defaultIndexUsed:
-                commitError.raiseError(
-                    GitCommitErrorCode.multiple_writable,
-                    exceptionOrExit=True)
-            GitCommit.__defaultIndexUsed = True
-            
-            self.__mesg = mesg if mesg is not None else 'New Commit'
-        else:
-            self.__mesg = self.commitRef.message
-
-    def __del__(self):
-        if not self.__isACommit:
-            GitCommit.__defaultIndexUsed = False
-
-    @property
-    def __isACommit(self):
-        # commit type: git.Commit
-        # index type: git.index.base.IndexFile
-        return isinstance(self.commitRef, git.Commit)
 
     @property
     def description(self) -> str:
-        if self.__isACommit:
+        if self.hasSaved:
             des = 'Git commit'
+            message = self.commitRef.message
+            return f'{des} {self.vcsData}:\n'\
+                    f'{message}'
         else:
             des = 'Git index'
-        return f'{des} {self.vcsData}:\n'\
-                f'{self.__mesg}'
+            return f'{des} {self.vcsData}'
 
     @property
     def vcsData(self):
-        if self.__isACommit:
+        if self.hasSaved:
             return self.commitRef.hexsha
         else:
             return self.commitRef.path
 
     @property
     def author(self) -> str:
-        if self.__isACommit:
+        if self.hasSaved:
             return self.commitRef.author.name
         else:
             author = git.Actor.author(self.repo.repo.config_reader('repository'))
@@ -97,23 +66,45 @@ class GitCommit(Commit):
 
     @property
     def email(self) -> str:
-        if self.__isACommit:
+        if self.hasSaved:
             return self.commitRef.author.email
         else:
             author = git.Actor.author(self.repo.repo.config_reader('repository'))
             return author.email
 
     @property
-    @Commit.checkReadonly()
-    def commitSha(self) -> str:
-        return self.commitRef.hexsha
+    def isWritable(self) -> bool:
+        return not self.hasSaved
 
     @property
-    def isWritable(self) -> bool:
-        return not self.__isACommit
+    def hasSaved(self) -> bool:
+        # commit type: git.Commit
+        # index type: git.index.base.IndexFile
+        return isinstance(self.commitRef, git.Commit)
 
-    @Commit.checkWritable()
-    def changeFile(self, change: Change) -> int:
+    @property
+    def isEmpty(self) -> bool:
+        if not self.hasSaved:
+            localCommit = self.repo.getLocalCommit()
+            if localCommit is None:
+                return len(self.commitRef.entries) == 0
+            else:
+                diff = self.commitRef.diff(localCommit.commitRef)
+                return len(diff) == 0
+        else:
+            return False
+
+    @property
+    def hasSubmitted(self) -> bool:
+        # just check if local top commit the same as remote top, skip fetch operations
+        if not self.repo.isHeadDetached:
+            topCommit = self.repo.getTopCommit()
+            localCommit = self.repo.getLocalCommit()
+            if topCommit is not None and localCommit == topCommit:
+                return True
+        return False
+
+    def changeFileImpl(self, change: Change) -> int:
         commitError = VcsHelperError('git', ErrorCategory.commit)
 
         absPath = self.repo.root.joinpath(change.path)
@@ -163,42 +154,20 @@ class GitCommit(Commit):
 
         return 0
 
-    @Commit.checkWritable()
-    def save(self) -> int:
+    def saveImpl(self, message: str) -> int:
         '''Do git commit here, commit changes to current local branch'''
         commitError = VcsHelperError('git', ErrorCategory.commit)
-        # verify empty staged file list
-        currentCommit = self.repo.getCurrentCommit()
-        if currentCommit is None:
-            if len(self.commitRef.entries) == 0:
-                return commitError.raiseError(GitCommitErrorCode.nothing_to_commit)
-        else:
-            if len(self.commitRef.diff(currentCommit.commitRef)) == 0:
-                return commitError.raiseError(GitCommitErrorCode.nothing_to_commit)
-        # commit
-        sha = self.commitRef.commit(self.__mesg)
+        sha = self.commitRef.commit(message)
         try:
             committed = self.repo.repo.commit(sha)
         except Exception as e:
             print(e)
             return commitError.raiseError(GitCommitErrorCode.commit_failure)
-
         self.commitRef = committed
-        GitCommit.__defaultIndexUsed = False
         return 0
 
-    def submit(self) -> int:
+    def submitImpl(self) -> int:
         '''Do git push here'''
-        # commit first
-        if not self.__isACommit:
-            result = self.save()
-            if result != 0:
-                return result
-        # verify non-detached
-        result = self.repo.verifyNonDetachedHead()
-        if result != 0:
-            return result
-        # push
         remoteName, branchName = self.repo.trackingBranchName
         if remoteName is None:
             remoteName = self.__remoteName

@@ -5,6 +5,7 @@ import logging
 import sys
 import os
 import stat
+import typing
 
 from ..common.logger import *
 from ..common.change import ChangeType, Change
@@ -30,9 +31,24 @@ class VCSTestBase(unittest.TestCase):
         VcsHelperLogger.getLogger().level= logging.DEBUG
         VcsHelperLogger.getLogger().addHandler(stdoutHandler)
 
+        cls.commitTestAddedList = []
+        cls.vcsName = None
+
     @classmethod
     def tearDownClass(cls):
         pass
+
+    def setUp(self):
+        VcsHelperLogger.info(self.id())
+
+    @property
+    def commitTestAddedList(self):
+        return self.__class__.commitTestAddedList
+    
+    def __getErrorCode(self, isCommon: bool, category: ErrorCategory,
+                                                    errorCode: int) -> int:
+        vcsName = 'common' if isCommon else self.__class__.vcsName
+        return VcsHelperError.calcErrorCode(vcsName, category, errorCode)
 
     # common functions
     def checkAddFile(self, commit: Commit, fileName: str, content: str,
@@ -61,12 +77,34 @@ class VCSTestBase(unittest.TestCase):
         self.assertFalse(txtFile.exists())
         return txtFile
 
-    def assertSaveSubmit(self, repo: Repo, commit: Commit):
-        result = commit.save()
+    def assertSave(self, repo: Repo, commit: Commit, message: str):
+        result = commit.save(message)
+        self.assertEqual(result, 0)
+
+    def assertSubmit(self, repo: Repo, commit: Commit):
+        result = commit.submit()
+        self.assertEqual(result, 0)
+        self.assertEqual(commit, repo.getTopCommit())
+
+    def assertSaveSubmit(self, repo: Repo, commit: Commit, message: str):
+        result = commit.save(message)
         self.assertEqual(result, 0)
         result = commit.submit()
         self.assertEqual(result, 0)
         self.assertEqual(commit, repo.getTopCommit())
+
+    def assertFailure(self, fn: typing.Callable[[], int],
+            isCommon: bool, category: ErrorCategory, errorCode: int):
+        errorCode = self.__getErrorCode(isCommon, category, errorCode)
+        # failure with exception
+        VcsHelperError.raiseType = VcsHelperError.RaiseType.exception
+        with self.assertRaises(VcsHelperException) as context:
+            fn()
+        self.assertTrue(context.exception.code, errorCode)
+        # failure with return code
+        VcsHelperError.raiseType = VcsHelperError.RaiseType.return_code
+        result = fn()
+        self.assertEqual(result, errorCode)
 
     # test case implementations
     __fileNames = [
@@ -80,62 +118,69 @@ class VCSTestBase(unittest.TestCase):
     def implTest_commit_initCommit(self, repo: Repo):
         fileName = VCSTestBase.__fileNames[0]
         content = VCSTestBase.__getTextFileContent(fileName)
+        message = 'Init commit.'
         VcsHelperLogger.info('[TEST] Add %s...', fileName)
         # new commit
-        commit = repo.getNewCommit('Init commit.')
+        commit = repo.getNewCommit()
         self.assertTrue(commit.isWritable)
-        result = commit.save()
-        self.assertNotEqual(result, 0)
+        # empty commit
+        self.assertFailure(lambda: commit.save(message),
+            True, ErrorCategory.commit, CommitErrorCode.nothing_to_save.value)
         self.assertIsNone(self.repo.getTopCommit())
         # add
         self.checkAddFile(commit, fileName, content)
         # save (git commit to local branch)
-        self.assertSaveSubmit(self.repo, commit)
-        # clear
-        del commit
+        self.assertSaveSubmit(self.repo, commit, message)
+        self.commitTestAddedList.append(commit.vcsData)
 
     def implTest_commit_writableCommit(self, repo: Repo):
         fileName = VCSTestBase.__fileNames[0]
         VcsHelperLogger.info('[TEST] Test writable commit...')
         commit = repo.getTopCommit()
-        result = commit.changeFile(
-            Change(Path(fileName), ChangeType.edit, changeContent='tmp'))
-        errorCode = (ErrorCategory.commit.value << 16) | CommitErrorCode.writable.value
-        self.assertEqual(result, errorCode)
-        # clear
-        del commit
+        change = Change(Path(fileName), ChangeType.edit, changeContent='tmp')
+        self.assertFailure(lambda: commit.changeFile(change),
+            True, ErrorCategory.commit, CommitErrorCode.writable.value)
 
     def implTest_commit_saveCommitSkip(self, repo: Repo):
         fileName = VCSTestBase.__fileNames[1]
         content = VCSTestBase.__getTextFileContent(fileName)
+        message = 'The 2nd commit.'
         VcsHelperLogger.info('[TEST] Skip commit save, add %s...', fileName)
-        commit = repo.getNewCommit('The 2nd commit.')
-        result = commit.save()
-        self.assertNotEqual(result, 0)
+        # empty commit
+        commit = repo.getNewCommit()
+        self.assertFailure(lambda: commit.save(message),
+            True, ErrorCategory.commit, CommitErrorCode.nothing_to_save.value)
         self.checkAddFile(commit, fileName, content)
-        result = commit.save()
-        self.assertEqual(result, 0)
-        result = commit.save()
-        self.assertNotEqual(result, 0)
-        result = commit.submit()
-        self.assertEqual(result, 0)
-        self.assertEqual(commit, repo.getTopCommit())
-        # clear
-        del commit
+        # first save
+        self.assertSave(repo, commit, message)
+        # second save, skip
+        self.assertFailure(lambda: commit.save(message),
+            True, ErrorCategory.commit, CommitErrorCode.already_saved.value)
+        # submit
+        self.assertSubmit(repo, commit)
+        self.commitTestAddedList.append(commit.vcsData)
 
     def implTest_commit_directlySubmit(self, repo: Repo):
         fileName = VCSTestBase.__fileNames[1]
         content = VCSTestBase.__getTextFileContent(fileName) + ', 2nd'
+        message = f'Edit {fileName}'
         VcsHelperLogger.info('[TEST] Submit directly, edit %s...', fileName)
-        commit = repo.getNewCommit(f'Edit {fileName}')
+        commit = repo.getNewCommit()
         result = commit.changeFile(Change(
             Path(fileName), ChangeType.edit, changeContent=content))
         self.assertEqual(result, 0)
-        result = commit.submit()
+        result = commit.submit(message)
         self.assertEqual(result, 0)
         self.assertEqual(commit, repo.getTopCommit())
-        # clear
-        del commit
+        self.commitTestAddedList.append(commit.vcsData)
+
+    def implTest_commit_submissionFailure(self,
+            # function to create commit which will be failed to be submitted
+            createCommitFn: typing.Callable[[], typing.Tuple[Commit]],
+            isCommon: bool, category: ErrorCategory, errorCode: int):
+        VcsHelperLogger.info('[TEST] Submission Failure...')
+        commit = createCommitFn()
+        self.assertFailure(commit.submit, isCommon, category, errorCode)
 
     validNextOpDict = {
         'add': ('edit', 'delete', 'move', 'move_edit'),

@@ -8,7 +8,7 @@ from .p4_runner import *
 
 
 VcsHelperError.registerError('common',
-            ErrorCategory.commit, CommitErrorCode.wrongDepot,
+            ErrorCategory.commit, CommitErrorCode.wrong_depot,
             'P4 Commit "{description}" is not belong to current depot!')
 
 class P4Commit(Commit):
@@ -41,8 +41,31 @@ class P4Commit(Commit):
     def isWritable(self) -> bool:
         return self.commitRef['Status'] in ['pending', 'new']
 
-    @Commit.checkWritable()
-    def changeFile(self, change: Change) -> int:
+    @property
+    def hasSaved(self) -> bool:
+        return self.vcsData > 0
+
+    @property
+    def isEmpty(self) -> bool:
+        if self.isWritable:
+            # refetch the change
+            if self.hasSaved:
+                result = p4Fetch(self.repo.p4, 'change', self.vcsData)
+            else:
+                result = p4Fetch(self.repo.p4, 'change')
+            if isinstance(result, VcsHelperErrorWrapper):
+                result.raiseError()
+                return True
+            self.commitRef.update(result)
+            return self.commitRef.get('Files', 0) == 0
+        else:
+            return False
+
+    @property
+    def hasSubmitted(self) -> bool:
+        return not self.isWritable
+
+    def changeFileImpl(self, change: Change) -> int:
         absPath = self.repo.root.joinpath(change.path)
         destAbsPath = None
         if change.destPath is not None:
@@ -89,26 +112,10 @@ class P4Commit(Commit):
 
         return 0
 
-    @Commit.checkWritable()
-    def save(self) -> int:
+    def saveImpl(self, message: str) -> int:
         '''Save changelist with all opened changes in default pending\
  changelist, to another named changelist.'''
-        
-        if self.vcsData > 0:
-            VcsHelperLogger.warning('Already saved! Skip saving.')
-            return -1
-
-        result = p4Fetch(self.repo.p4, 'change')
-        if isinstance(result, VcsHelperErrorWrapper):
-            return result.raiseError()
-        defaultPending = result
-        # no changes, just skip
-        if defaultPending.get('Files', 0) == 0:
-            VcsHelperLogger.warning('Empty changelist! Skip saving.')
-            return -1
-
-        # save changelist
-        self.commitRef['Files'] = defaultPending['Files']
+        self.commitRef['Description'] = message
         result = p4Save(self.repo.p4, 'change', self.commitRef)
         if isinstance(result, VcsHelperErrorWrapper):
             return result.raiseError()
@@ -116,18 +123,7 @@ class P4Commit(Commit):
         self.commitRef.update(self.repo.getCommit(changelist).commitRef)
         return 0
     
-    @Commit.checkWritable()
-    def submit(self) -> int:
-
-        if self.vcsData == -1:
-            result = self.save()
-            if result != 0:
-                return result
-
-        if len(self.commitRef['Files']) == 0:
-            VcsHelperLogger.warning('Empty changelist! Skip submitting.')
-            return -1
-
+    def submitImpl(self) -> int:
         # TODO, auto resolve
         #for file in self.commitRef['Files']:
         #    result = p4Run(self.repo.p4, 'fstat',
@@ -235,7 +231,7 @@ class P4Commit(Commit):
                 yield Change(srcPath, ChangeType.move, filePath)
         if wrongDepot:
             self.lastIterResult = self.error.raiseError(
-                        CommitErrorCode.wrongDepot,
+                        CommitErrorCode.wrong_depot,
                         description=self.description.replace('\n', '\\n'),
                         exceptionOrExit=False,
                         returnResult=VcsHelperError.RaiseType.return_code)
@@ -248,10 +244,6 @@ class P4Commit(Commit):
             yield from self.__iterPendingChangelist(changelist)
         else:
             yield from self.__iterSubmittedChangelist(self.vcsData)
-
-    #def iterChangesP4(self):
-    #    # TODO
-    #    pass
 
     def __iterChangesFromTo(self,
             fromChangelist: int, fromPendingChangelist: typing.Optional[str],

@@ -29,6 +29,8 @@ class GitRepoErrorCode(Enum):
     
     # repo
     reset_failure = RepoErrorCode.last.value
+    check_out_commit_failure = auto()
+    check_out_local_branch_failure = auto()
 
     # commit
 
@@ -81,6 +83,13 @@ VcsHelperError.registerError('git',
 VcsHelperError.registerError('git',
     ErrorCategory.repo, GitRepoErrorCode.reset_failure,
     'Failed to reset to "{commitSha}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.check_out_commit_failure,
+    'Failed to check out commit "{commitSha}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.check_out_local_branch_failure,
+    'Failed to check out local branch "{branchName}"!')
+
 
 VcsHelperError.registerError('git',
     ErrorCategory.tag, GitRepoErrorCode.tag_create_failure,
@@ -125,23 +134,21 @@ class GitProgress(git.remote.RemoteProgress):
 class GitRepo(Repo):
 
     def __init__(self, root: Path,
-            remoteName: typing.Optional[str]=None,):
-        connectionError = VcsHelperError('git', ErrorCategory.connection)
-
+            remoteName: typing.Optional[str]=None):
         # git repo
         try:
             self.__repo = git.Repo(str(root))
         except Exception as e:
             print(e)
-            connectionError.raiseError(
-                GitRepoErrorCode.open_repo_failure,
-                exceptionOrExit=True, root=root)
+            self.connectionError.raiseError(
+                                        GitRepoErrorCode.open_repo_failure,
+                                        exceptionOrExit=True, root=root)
 
         self.__remote = None
         if remoteName is not None:
             self.__remote = self.repo.remotes[remoteName]
         elif len(self.repo.remotes) > 0:
-            self.__remote
+            self.__remote = self.repo.remotes[0]
 
         # init
         super().__init__(root)
@@ -153,6 +160,16 @@ class GitRepo(Repo):
     def __del__(self):
         self.__repo = None
 
+    @property
+    def connectionError(self):
+        return VcsHelperError('git', ErrorCategory.connection)
+    @property
+    def repoError(self):
+        return VcsHelperError('git', ErrorCategory.repo)
+    @property
+    def remoteError(self):
+        return VcsHelperError('git', ErrorCategory.remote)
+
     # repo common
     def setAuthor(self, name: str, email: str) -> int:
         writer = self.repo.config_writer('repository')
@@ -163,17 +180,16 @@ class GitRepo(Repo):
 
     # remote
     def verifyRemote(self, remoteName: typing.Optional[str]=None):
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
         if len(self.repo.remotes) == 0:
-            return remoteError.raiseError(GitRepoErrorCode.remote_missing)
+            return self.remoteError.raiseError(GitRepoErrorCode.remote_missing)
         if remoteName is not None and remoteName not in self.repo.remotes:
-            return remoteError.raiseError(
+            return self.remoteError.raiseError(
                 GitRepoErrorCode.remote_inexistent,
                 remote=remoteName)
         return 0
 
     def addRemote(self, remoteName:str, url:str) -> int:
-        # crate_remote
+        # create_remote
         raise NotImplementedError
 
     def removeRemote(self, remoteName:str) -> int:
@@ -186,7 +202,7 @@ class GitRepo(Repo):
 
     # remote: tracking branch
     @property
-    def isHeadDetached(self):
+    def isHeadDetached(self) -> bool:
         return self.repo.head.is_detached
 
     def __getTackingBranch(self):
@@ -196,7 +212,7 @@ class GitRepo(Repo):
         return self.repo.head.ref.tracking_branch()
 
     @property
-    def trackingBranchName(self):
+    def trackingBranchName(self) -> tuple[str, str]|tuple[None, None]:
         trackingBranch = self.__getTackingBranch()
         if trackingBranch is None:
             return None, None
@@ -209,15 +225,12 @@ class GitRepo(Repo):
     def clearTrackingBranch(self):
         raise NotImplementedError
 
-    def verifyNonDetachedHead(self):
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
+    def verifyNonDetachedHead(self) -> int:
         if self.isHeadDetached:
-            return remoteError.raiseError(GitRepoErrorCode.head_detached)
+            return self.remoteError.raiseError(GitRepoErrorCode.head_detached)
         return 0
 
     def verifyTrackingBranch(self):
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
-        
         result = self.verifyNonDetachedHead()
         if result != 0:
             return result
@@ -227,14 +240,13 @@ class GitRepo(Repo):
             return result
         
         if self.__getTackingBranch() is None:
-            return remoteError.raiseError(
+            return self.remoteError.raiseError(
                                     GitRepoErrorCode.head_no_tracking_branch,
                                     name=self.head.ref.name)
         return 0
 
     # remote: fetch
     def fetch(self, remoteName: typing.Optional[str]=None, fetchAll=False):
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
         if remoteName is None:
             result = self.verifyTrackingBranch()
             if result != 0:
@@ -252,7 +264,7 @@ class GitRepo(Repo):
                     remote.fetch(progress=progress, prune=True)
                 except Exception as e:
                     print(e)
-                    return remoteError.raiseError(
+                    return self.remoteError.raiseError(
                         GitRepoErrorCode.fetch_failure, remote=remote.name)
             return 0
         try:
@@ -260,15 +272,13 @@ class GitRepo(Repo):
             remote.fetch(prune=True)
         except Exception as e:
             print(e)
-            return remoteError.raiseError(
+            return self.remoteError.raiseError(
                 GitRepoErrorCode.fetch_failure, remote=remote.name)
         return 0
 
     # remote: push head
     def push(self, remoteName: str,
             remoteBranchName: typing.Optional[str] = None) -> int:
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
-        
         result = self.verifyRemote(remoteName)
         if result != 0:
             return result
@@ -288,7 +298,7 @@ class GitRepo(Repo):
             result = remote.push(refSpec, progress)
         except Exception as e:
             print(e)
-            return remoteError.raiseError(
+            return self.remoteError.raiseError(
                 GitRepoErrorCode.push_failure, remote=remoteName)
         return 0
 
@@ -299,28 +309,38 @@ class GitRepo(Repo):
             return None
         return self.repo.head.ref.name
 
-    def getCurrentCommit(self) -> typing.Optional[GitCommit]:
+    def getLocalCommit(self) -> typing.Optional[GitCommit]:
         try:
             gitCommit = self.repo.head.commit
         except:
             return None
         return GitCommit(self, gitCommit)
 
-    def checkoutCommit(self, Commit: GitCommit) -> int:
-        raise NotImplementedError
+    def checkoutCommit(self, commit: GitCommit) -> int:
+        errorCode = commit.checkWritable()
+        if errorCode != 0:
+            return errorCode
+        
+        try:
+            self.repo.head.ref = self.repo.create_head("", commit.commitRef)
+        except Exception as e:
+            print(e)
+            return self.repoError.raiseError(
+                GitRepoErrorCode.check_out_commit_failure,
+                commitSha=commit.vcsData)
+        raise 0
 
     def checkoutLocalBranch(self, branchName: str) -> int:
         raise NotImplementedError
 
     def checkoutRemoteBranch(self, newBranchName: str, remoteBranchName: str) -> int:
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
         try:
             head = self.repo.create_head(localBranchName, force=True)
             head.set_tracking_branch(self.remoteBranch)
             self.repo.head.ref = head
         except Exception as e:
             print(e)
-            return remoteError.raiseError(
+            return self.remoteError.raiseError(
                 GitRepoErrorCode.remote_branch_checkout_failure,
                 remoteName=self.remote.name,
                 remoteBranch=self.__remoteBranchName)
@@ -333,7 +353,6 @@ class GitRepo(Repo):
 
     # submodules
     def updateSubmodules(self) -> int:
-        remoteError = VcsHelperError('git', ErrorCategory.remote)
         self.submodules = {}
         for submodule in self.__repo.submodules:
             submoduleRoot = self.root.joinpath(submodule.path)
@@ -360,7 +379,7 @@ class GitRepo(Repo):
                         except:
                             continue
                 if submoduleRemoteBranch is None:
-                    return remoteError.raiseError(
+                    return self.remoteError.raiseError(
                         GitRepoErrorCode.submodule_remote_inexistent,
                         remoteBranch=submoduleBranchName,
                         submodule=submodule.name)
@@ -474,9 +493,8 @@ class GitRepo(Repo):
             return 0
         except Exception as e:
             print(e)
-            repoError = VcsHelperError('git', ErrorCategory.repo)
-            return repoError.raiseError(GitRepoErrorCode.reset_failure,
-                                                    commitSha=commit.commitSha)
+            return self.repoError.raiseError(GitRepoErrorCode.reset_failure,
+                                                    commitSha=commit.vcsData)
 
     def clearPendings(self):
         self.repo.head.reset(self.repo.head.commit, working_tree=True)
@@ -488,9 +506,9 @@ class GitRepo(Repo):
         except:
             return None
 
-    def getNewCommit(self, mesg: str) -> Commit | None:
+    def getNewCommit(self) -> Commit | None:
         try:
-            return GitCommit(self, mesg=mesg)
+            return GitCommit(self)
         except:
             return None
 

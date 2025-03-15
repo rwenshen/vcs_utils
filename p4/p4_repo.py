@@ -312,13 +312,13 @@ class P4Repo(Repo):
             return result.raiseError(returnResult=None)
         
         streamHead = self.__getStreamHead(srcStreamName)
-        defaultPending = self.getNewCommit(
-                f'Copy {srcStreamName} at {streamHead.vcsData} up to'\
-                f' {stream["Stream"]}.')
+        defaultPending = self.getNewCommit()
         if 'Files' not in defaultPending.commitRef:
             return None
         if commit is None:
-            defaultPending.save()
+            defaultPending.save(
+                f'Copy {srcStreamName} at {streamHead.vcsData} up to'\
+                f' {stream["Stream"]}.')
             return defaultPending
         else:
             fileList = commit.commitRef.setdefault('Files', [])
@@ -345,13 +345,13 @@ class P4Repo(Repo):
             return result.raiseError(returnResult=None)
         
         streamHead = self.__getStreamHead(stream["Parent"])
-        defaultPending = self.getNewCommit(
-                            f'Merge {stream["Parent"]} at {streamHead.vcsData}'\
-                            f' down to {stream["Stream"]}.')
+        defaultPending = self.getNewCommit()
         if 'Files' not in defaultPending.commitRef:
             return None
         if commit is None:
-            defaultPending.save()
+            defaultPending.save(
+                f'Merge {stream["Parent"]} at {streamHead.vcsData}'\
+                f' down to {stream["Stream"]}.')
             return defaultPending
         else:
             fileList = commit.commitRef.setdefault('Files', [])
@@ -494,11 +494,10 @@ class P4Repo(Repo):
         return P4Commit(self, change)
 
     @checkClient.__func__(exceptionOrExit=True)
-    def getNewCommit(self, message: str) -> Commit | None:
+    def getNewCommit(self) -> Commit | None:
         change = p4Fetch(self.p4, 'change')
         if isinstance(change, VcsHelperErrorWrapper):
             return None
-        change['Description'] = message
         return P4Commit(self, change)
 
     @checkClient.__func__(exceptionOrExit=True)

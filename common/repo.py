@@ -86,7 +86,7 @@ class Repo(ABC):
         raise NotImplemented
 
     @abstractmethod
-    def getNewCommit(self, message: str) -> Commit | None:
+    def getNewCommit(self) -> Commit | None:
         raise NotImplemented
 
     @abstractmethod
