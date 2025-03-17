@@ -43,10 +43,10 @@ class GitRepoTest(VCSTestBase):
         super(GitRepoTest, cls).tearDownClass()
 
     @property
-    def repo(self):
+    def repo(self) -> GitRepo:
         return self.__class__.repo
     @property
-    def repo2(self):
+    def repo2(self) -> GitRepo:
         return self.__class__.repo2
 
     # init repo / clone repo 
@@ -72,7 +72,7 @@ class GitRepoTest(VCSTestBase):
     def test_02_01_initCommit(self):
         authorName = 'user1'
         authorEmail = 'user1@test.com'
-        self.repo.setAuthor(authorName, authorEmail)
+        self.repo.setAuthorNameAndEmail(authorName, authorEmail)
         
         # common init commit
         self.implTest_commit_initCommit(self.repo)
@@ -85,7 +85,7 @@ class GitRepoTest(VCSTestBase):
         commit = self.repo.getNewCommit()
         authorName = 'user2'
         authorEmail = 'user2@test.com'
-        self.repo.setAuthor(authorName, authorEmail)
+        self.repo.setAuthorAndEmail(authorName, authorEmail)
         self.assertEqual(commit.author, authorName)
         self.assertEqual(commit.email, authorEmail)
 

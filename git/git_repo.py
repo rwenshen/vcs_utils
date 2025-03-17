@@ -28,9 +28,12 @@ class GitRepoErrorCode(Enum):
     submodule_remote_inexistent = auto()
     
     # repo
+    get_author_failure = auto()
+    set_author_failure = auto()
     reset_failure = RepoErrorCode.last.value
     check_out_commit_failure = auto()
-    check_out_local_branch_failure = auto()
+    check_out_head_inexistent = auto()
+    check_out_head_failure = auto()
 
     # commit
 
@@ -81,15 +84,23 @@ VcsHelperError.registerError('git',
     'Failed to find Remote branch "{remoteBranch}" for submodule "{submodule}"!')
 
 VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.get_author_failure,
+    'Failed to get author of git repo "{repoPath}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.set_author_failure,
+    'Failed to set author of git repo "{repoPath}"!')
+VcsHelperError.registerError('git',
     ErrorCategory.repo, GitRepoErrorCode.reset_failure,
     'Failed to reset to "{commitSha}"!')
 VcsHelperError.registerError('git',
     ErrorCategory.repo, GitRepoErrorCode.check_out_commit_failure,
     'Failed to check out commit "{commitSha}"!')
 VcsHelperError.registerError('git',
-    ErrorCategory.repo, GitRepoErrorCode.check_out_local_branch_failure,
-    'Failed to check out local branch "{branchName}"!')
-
+    ErrorCategory.repo, GitRepoErrorCode.check_out_head_inexistent,
+    'Failed to check out head(local branch) "{headName}"! It is not existent.')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.check_out_head_failure,
+    'Failed to check out head(local branch) "{headName}"!')
 
 VcsHelperError.registerError('git',
     ErrorCategory.tag, GitRepoErrorCode.tag_create_failure,
@@ -133,9 +144,15 @@ class GitProgress(git.remote.RemoteProgress):
 
 class GitRepo(Repo):
 
+    # headName: local branch name (if not exists, new head will be created)
+    # trackingBranchPath: will be set to git repo
+    # commitShaToCheckout: if headName is not set, will check out repo to detached head
     def __init__(self, root: Path,
-            remoteName: typing.Optional[str]=None):
-        # git repo
+            headName: str|None=None,
+            trackingBranchPath: str|None=None,
+            commitShaToCheckout: str|None=None,
+            author: git.Actor|None=None):
+        # create git repo
         try:
             self.__repo = git.Repo(str(root))
         except Exception as e:
@@ -144,13 +161,34 @@ class GitRepo(Repo):
                                         GitRepoErrorCode.open_repo_failure,
                                         exceptionOrExit=True, root=root)
 
-        self.__remote = None
-        if remoteName is not None:
-            self.__remote = self.repo.remotes[remoteName]
-        elif len(self.repo.remotes) > 0:
-            self.__remote = self.repo.remotes[0]
+        # author
+        try:
+            self.__author = git.Actor.author(
+                                    self.repo.config_reader('repository'))
+        except Exception as e:
+            print(e)
+            self.connectionError.raiseError(
+                                        GitRepoErrorCode.get_author_failure,
+                                        exceptionOrExit=True, repoPath=root)
+        if author is not None:
+            self.author = author
 
-        # init
+        # head (local branch / detached head)
+        if headName is not None:
+            pass
+
+
+        # remote
+        #self.__remote = None
+        #if remoteName is not None:
+        #    self.__remote = self.repo.remotes[remoteName]
+        #elif len(self.repo.remotes) > 0:
+        #    self.__remote = self.repo.remotes[0]
+
+        #def __getTackingBranch(self):
+
+
+        # super init
         super().__init__(root)
 
         # submodule support
@@ -160,6 +198,7 @@ class GitRepo(Repo):
     def __del__(self):
         self.__repo = None
 
+    # errors
     @property
     def connectionError(self):
         return VcsHelperError('git', ErrorCategory.connection)
@@ -170,16 +209,28 @@ class GitRepo(Repo):
     def remoteError(self):
         return VcsHelperError('git', ErrorCategory.remote)
 
-    # repo common
-    def setAuthor(self, name: str, email: str) -> int:
-        writer = self.repo.config_writer('repository')
-        writer.set_value('user', 'name', name)
-        writer.set_value('user', 'email', email)
-        writer.release()
-        return 0
+    # repo author
+    @property
+    def author(self) -> git.Actor:
+        return self.__author
+
+    def setAuthorNameAndEmail(self, name: str, email: str):
+        try:
+            writer = self.repo.config_writer('repository')
+            writer.set_value('user', 'name', name)
+            writer.set_value('user', 'email', email)
+            writer.release()
+        except Exception as e:
+            print(e)
+            return self.connectionError.raiseError(
+                                        GitRepoErrorCode.set_author_failure,
+                                        exceptionOrExit=True,
+                                        repoPath=self.repo.working_dir)
+        self.__author.name = name
+        self.__author.email = email
 
     # remote
-    def verifyRemote(self, remoteName: typing.Optional[str]=None):
+    def verifyRemote(self, remoteName: str|None=None):
         if len(self.repo.remotes) == 0:
             return self.remoteError.raiseError(GitRepoErrorCode.remote_missing)
         if remoteName is not None and remoteName not in self.repo.remotes:
@@ -201,10 +252,6 @@ class GitRepo(Repo):
         raise NotImplementedError
 
     # remote: tracking branch
-    @property
-    def isHeadDetached(self) -> bool:
-        return self.repo.head.is_detached
-
     def __getTackingBranch(self):
         if self.isHeadDetached:
             # VcsHelperLogger.warning('Head is detached, no remote tracking.')
@@ -302,14 +349,18 @@ class GitRepo(Repo):
                 GitRepoErrorCode.push_failure, remote=remoteName)
         return 0
 
-    # local branch
+    # head (local branch / detached head)
     @property
-    def currentBranchName(self) -> typing.Optional[str]:
+    def isHeadDetached(self) -> bool:
+        return self.repo.head.is_detached
+
+    @property
+    def headName(self) -> typing.Optional[str]:
         if self.isHeadDetached:
             return None
-        return self.repo.head.ref.name
+        return str(self.repo.head.ref)
 
-    def getLocalCommit(self) -> typing.Optional[GitCommit]:
+    def getHeadCommit(self) -> GitCommit|None:
         try:
             gitCommit = self.repo.head.commit
         except:
@@ -320,18 +371,31 @@ class GitRepo(Repo):
         errorCode = commit.checkWritable()
         if errorCode != 0:
             return errorCode
-        
         try:
-            self.repo.head.ref = self.repo.create_head("", commit.commitRef)
+            self.repo.head.set_reference(commit.commitRef)
         except Exception as e:
             print(e)
             return self.repoError.raiseError(
                 GitRepoErrorCode.check_out_commit_failure,
                 commitSha=commit.vcsData)
-        raise 0
+        return 0
 
-    def checkoutLocalBranch(self, branchName: str) -> int:
-        raise NotImplementedError
+    def checkoutHead(self, headName: str) -> int:
+        try:
+            headRef = self.repo.heads[headName]
+        except Exception as e:
+            print(e)
+            return self.repoError.raiseError(
+                GitRepoErrorCode.check_out_head_inexistent,
+                headName=headName)
+        try:
+            self.repo.head.set_reference(commit.commitRef)
+        except Exception as e:
+            print(e)
+            return self.repoError.raiseError(
+                GitRepoErrorCode.check_out_head_failure,
+                headName=headName)
+        return 0
 
     def checkoutRemoteBranch(self, newBranchName: str, remoteBranchName: str) -> int:
         try:
@@ -424,13 +488,13 @@ class GitRepo(Repo):
     @staticmethod
     def initRepo(root: Path,
             bare: bool=False,
-            initialBranch: typing.Optional[str]=None):
+            initialBranch: str|None=None) -> 'GitRepo':
         try:
             extraParams = {'bare': bare}
             if initialBranch is not None:
                 extraParams['initial_branch'] = initialBranch
             git.Repo.init(str(root), **extraParams)
-            return GitRepo(root)
+            return GitRepo(root, headName=initialBranch)
         except Exception as e:
             print(e)
             connectionError = VcsHelperError('git', ErrorCategory.connection)
@@ -450,7 +514,6 @@ class GitRepo(Repo):
                 str(url), str(root), progress=progress, **extraParams)
             repo = GitRepo(root)
             return repo
-            
         except Exception as e:
             print(e)
             connectionError = VcsHelperError('git', ErrorCategory.connection)

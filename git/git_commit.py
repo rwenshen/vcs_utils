@@ -57,20 +57,19 @@ class GitCommit(Commit):
             return self.commitRef.path
 
     @property
-    def author(self) -> str:
+    def gitAuthor(self) -> git.Actor:
         if self.hasSaved:
-            return self.commitRef.author.name
+            return self.commitRef.author
         else:
-            author = git.Actor.author(self.repo.repo.config_reader('repository'))
-            return author.name
+            return self.repo.author
+
+    @property
+    def author(self) -> str:
+        return self.gitAuthor.name
 
     @property
     def email(self) -> str:
-        if self.hasSaved:
-            return self.commitRef.author.email
-        else:
-            author = git.Actor.author(self.repo.repo.config_reader('repository'))
-            return author.email
+        return self.gitAuthor.email
 
     @property
     def isWritable(self) -> bool:
@@ -103,6 +102,11 @@ class GitCommit(Commit):
             if topCommit is not None and localCommit == topCommit:
                 return True
         return False
+
+    def checkSubmittable(self) -> int:
+        errorCode = super().checkSubmittable()
+        if errorCode != 0:
+            return errorCode
 
     def changeFileImpl(self, change: Change) -> int:
         commitError = VcsHelperError('git', ErrorCategory.commit)
