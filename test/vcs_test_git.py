@@ -172,7 +172,7 @@ class GitRepoTest(VCSTestBase):
 #        self.assertEqual(len(changes), 0)
 
 
-# TODO fetch
+# TODO fetch, multiple remote
 # TODO submodule
 # TODO branch
 # TODO remote

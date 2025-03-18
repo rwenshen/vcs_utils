@@ -2,6 +2,7 @@ from pathlib import Path
 import typing
 from enum import Enum, auto
 import git
+from git.remote import PushInfo, FetchInfo
 
 from ..common.logger import *
 from ..common.commit import Commit
@@ -34,8 +35,6 @@ class GitRepoErrorCode(Enum):
     check_out_commit_failure = auto()
     check_out_head_inexistent = auto()
     check_out_head_failure = auto()
-
-    # commit
 
     # tag
     tag_create_failure = auto()
@@ -149,9 +148,9 @@ class GitRepo(Repo):
     # commitShaToCheckout: if headName is not set, will check out repo to detached head
     def __init__(self, root: Path,
             headName: str|None=None,
-            trackingBranchPath: str|None=None,
             commitShaToCheckout: str|None=None,
-            author: git.Actor|None=None):
+            author: git.Actor|None=None,
+            sshFile: Path|None=None):
         # create git repo
         try:
             self.__repo = git.Repo(str(root))
@@ -160,6 +159,12 @@ class GitRepo(Repo):
             self.connectionError.raiseError(
                                         GitRepoErrorCode.open_repo_failure,
                                         exceptionOrExit=True, root=root)
+
+        # ssh
+        self.__oldEnv = None
+        if sshFile is not None:
+            sshCmd = f'ssh -i {sshFile}'
+            self.__oldEnv = git.Git().update_environment(GIT_SSH_COMMAND=sshCmd)
 
         # author
         try:
@@ -175,18 +180,17 @@ class GitRepo(Repo):
 
         # head (local branch / detached head)
         if headName is not None:
-            pass
-
-
-        # remote
-        #self.__remote = None
-        #if remoteName is not None:
-        #    self.__remote = self.repo.remotes[remoteName]
-        #elif len(self.repo.remotes) > 0:
-        #    self.__remote = self.repo.remotes[0]
-
-        #def __getTackingBranch(self):
-
+            try:
+                headRef = self.repo.heads[headName]
+            except Exception as e:
+                pass # create new
+            else:
+                self.checkoutHead(headName)
+            if commitShaToCheckout is not None:
+                VcsHelperLogger.warning(
+                    "commitShaToCheckout '%s' is ignores, because headName is set.", commitShaToCheckout)
+        elif commitShaToCheckout is not None:
+            self.checkoutCommit(self.getCommit(commitShaToCheckout))
 
         # super init
         super().__init__(root)
@@ -197,6 +201,8 @@ class GitRepo(Repo):
 
     def __del__(self):
         self.__repo = None
+        if self.__oldEnv is not None:
+            git.Git().update_environment(**self.__oldEnv)
 
     # errors
     @property
@@ -230,14 +236,28 @@ class GitRepo(Repo):
         self.__author.email = email
 
     # remote
-    def verifyRemote(self, remoteName: str|None=None):
+    def verifyRemote(self) -> int:
         if len(self.repo.remotes) == 0:
             return self.remoteError.raiseError(GitRepoErrorCode.remote_missing)
-        if remoteName is not None and remoteName not in self.repo.remotes:
-            return self.remoteError.raiseError(
-                GitRepoErrorCode.remote_inexistent,
-                remote=remoteName)
         return 0
+
+    def verifyGetRemoteName(self, remoteName: str|None=None) -> str|int:
+        errorCode = self.verifyRemote()
+        if errorCode != 0:
+            return errorCode
+        if remoteName is not None:
+            if remoteName not in self.repo.remotes:
+                return self.remoteError.raiseError(
+                                        GitRepoErrorCode.remote_inexistent,
+                                        remote=remoteName)
+            else:
+                return remoteName
+        else:
+            trackingBranchPath = self.trackingBranchPath
+            if trackingBranchPath is None:
+                return self.repo.remotes[0]
+            remoteName, sep, branchName = trackingBranchPath.partition('/')
+            return remoteName
 
     def addRemote(self, remoteName:str, url:str) -> int:
         # create_remote
@@ -254,19 +274,17 @@ class GitRepo(Repo):
     # remote: tracking branch
     def __getTackingBranch(self):
         if self.isHeadDetached:
-            # VcsHelperLogger.warning('Head is detached, no remote tracking.')
             return None
         return self.repo.head.ref.tracking_branch()
 
     @property
-    def trackingBranchName(self) -> tuple[str, str]|tuple[None, None]:
+    def trackingBranchPath(self) -> str|None:
         trackingBranch = self.__getTackingBranch()
         if trackingBranch is None:
-            return None, None
-        remoteName, sep, branchName = trackingBranch.name.partition('/')
-        return remoteName, branchName
+            return None
+        return str(trackingBranch)
 
-    def setTrackingBranch(self, remoteName, branchName:str):
+    def setTrackingBranchPath(self, trackingBranchPath:str):
         raise NotImplementedError
 
     def clearTrackingBranch(self):
@@ -281,68 +299,93 @@ class GitRepo(Repo):
         result = self.verifyNonDetachedHead()
         if result != 0:
             return result
-        
         result = self.verifyRemote()
         if result != 0:
             return result
-        
         if self.__getTackingBranch() is None:
             return self.remoteError.raiseError(
                                     GitRepoErrorCode.head_no_tracking_branch,
                                     name=self.head.ref.name)
         return 0
 
-    # remote: fetch
-    def fetch(self, remoteName: typing.Optional[str]=None, fetchAll=False):
-        if remoteName is None:
-            result = self.verifyTrackingBranch()
-            if result != 0:
-                return result
-            remoteName, branchName = self.trackingBranchName
-
-        result = self.verifyRemote(remoteName)
-        if result != 0:
-            return result
-
-        if fetchAll:
-            for remote in self.repo.remotes:
-                try:
-                    progress = GitProgress('fetch')
-                    remote.fetch(progress=progress, prune=True)
-                except Exception as e:
-                    print(e)
-                    return self.remoteError.raiseError(
-                        GitRepoErrorCode.fetch_failure, remote=remote.name)
-            return 0
+    def checkoutRemoteBranch(self, headName: str, remoteBranchName: str) -> int:
+        # TODO
         try:
-            remote = self.repo.remotes[remoteName]
-            remote.fetch(prune=True)
+            head = self.repo.create_head(localBranchName, force=True)
+            head.set_tracking_branch(self.remoteBranch)
+            self.repo.head.ref = head
         except Exception as e:
             print(e)
             return self.remoteError.raiseError(
-                GitRepoErrorCode.fetch_failure, remote=remote.name)
+                GitRepoErrorCode.remote_branch_checkout_failure,
+                remoteName=self.remote.name,
+                remoteBranch=self.__remoteBranchName)
+
+        result = self.sync(self.getTopCommit(), reset=True)
+        if result != 0:
+            return result
+        head.checkout()
         return 0
 
-    # remote: push head
-    def push(self, remoteName: str,
-            remoteBranchName: typing.Optional[str] = None) -> int:
-        result = self.verifyRemote(remoteName)
-        if result != 0:
-            return result
-        result = self.verifyNonDetachedHead()
-        if result != 0:
-            return result
+    # remote: fetch
+    def fetch(self, remoteName: str|None=None, fetchAll: bool=False) -> int:
 
-        head = self.repo.head.ref
-        if remoteBranchName is None:
-            destPath = head.path
-        else:
-            destPath = 'refs/heads/' + remoteBranchName
-        refSpec = f'{head.path}:{destPath}'
-        remote = self.repo.remotes[remoteName]
+        def doFetch(remote) -> int:
+            try:
+                progress = GitProgress('fetch')
+                fetchInfo: FetchInfo = remote.fetch(
+                                            progress=progress, prune=True)[0]
+                assert not (fetchInfo.flags | FetchInfo.ERROR) \
+                    and not (fetchInfo.flags | FetchInfo.REJECTED)
+            except Exception as e:
+                print(e)
+                return self.remoteError.raiseError(
+                    GitRepoErrorCode.fetch_failure, remote=remote.name)
+            return 0
+
+        if fetchAll:
+            result = self.verifyRemote()
+            if result != 0:
+                return result
+            for remote in self.repo.remotes:
+                errorCode = doFetch(remote)
+                if errorCode != 0:
+                    return errorCode
+            return 0
+        
+        result = self.verifyGetRemoteName(remoteName)
+        if isinstance(result, int):
+            return result
+        remote = self.repo.remotes[result]
+        return doFetch(remote)
+
+    # remote: push head
+    def push(self, remoteName: str|None=None,
+            remoteBranchName: str|None=None) -> int:
+        # get remote
+        result = self.verifyGetRemoteName(remoteName)
+        if isinstance(result, int):
+            return result
+        remote = self.repo.remotes[result]
+        # src branch
+        errorCode = self.verifyNonDetachedHead()
+        if errorCode != 0:
+            return errorCode
+        srcBranch = str(self.repo.head.ref)
+        # dest branch
+        destBranch = None
+        if remoteBranchName is not None:
+            destBranch = remoteBranchName
+
+        refSpec = srcBranch
+        if destBranch is not None:
+            refSpec += f':{destBranch}'
         progress = GitProgress('push')
         try:
-            result = remote.push(refSpec, progress)
+            pushInfo = remote.push(refSpec, progress)[0]
+            assert (pushInfo.flags | PushInfo.NEW_HEAD) \
+                or (pushInfo.flags | PushInfo.FAST_FORWARD) \
+                or (pushInfo.flags | PushInfo.NEW_TAG)
         except Exception as e:
             print(e)
             return self.remoteError.raiseError(
@@ -381,6 +424,8 @@ class GitRepo(Repo):
         return 0
 
     def checkoutHead(self, headName: str) -> int:
+        if str(self.repo.head.ref) == headName:
+            return 0 # already on the head
         try:
             headRef = self.repo.heads[headName]
         except Exception as e:
@@ -389,30 +434,12 @@ class GitRepo(Repo):
                 GitRepoErrorCode.check_out_head_inexistent,
                 headName=headName)
         try:
-            self.repo.head.set_reference(commit.commitRef)
+            self.repo.head.set_reference(headRef)
         except Exception as e:
             print(e)
             return self.repoError.raiseError(
                 GitRepoErrorCode.check_out_head_failure,
                 headName=headName)
-        return 0
-
-    def checkoutRemoteBranch(self, newBranchName: str, remoteBranchName: str) -> int:
-        try:
-            head = self.repo.create_head(localBranchName, force=True)
-            head.set_tracking_branch(self.remoteBranch)
-            self.repo.head.ref = head
-        except Exception as e:
-            print(e)
-            return self.remoteError.raiseError(
-                GitRepoErrorCode.remote_branch_checkout_failure,
-                remoteName=self.remote.name,
-                remoteBranch=self.__remoteBranchName)
-
-        result = self.sync(self.getTopCommit(), reset=True)
-        if result != 0:
-            return result
-        head.checkout()
         return 0
 
     # submodules

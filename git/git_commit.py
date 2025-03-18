@@ -32,7 +32,6 @@ class GitCommit(Commit):
 
     def __init__(self, repo: 'GitRepo', 
             commit: typing.Optional[git.Commit]=None):
-        commitError = VcsHelperError('git', ErrorCategory.commit)
         # create new git index for writable commit
         if commit is None:
             commit = repo.repo.index
@@ -84,11 +83,11 @@ class GitCommit(Commit):
     @property
     def isEmpty(self) -> bool:
         if not self.hasSaved:
-            localCommit = self.repo.getLocalCommit()
-            if localCommit is None:
+            headCommit = self.repo.getHeadCommit()
+            if headCommit is None:
                 return len(self.commitRef.entries) == 0
             else:
-                diff = self.commitRef.diff(localCommit.commitRef)
+                diff = self.commitRef.diff(headCommit.commitRef)
                 return len(diff) == 0
         else:
             return False
@@ -98,8 +97,8 @@ class GitCommit(Commit):
         # just check if local top commit the same as remote top, skip fetch operations
         if not self.repo.isHeadDetached:
             topCommit = self.repo.getTopCommit()
-            localCommit = self.repo.getLocalCommit()
-            if topCommit is not None and localCommit == topCommit:
+            headCommit = self.repo.getHeadCommit()
+            if topCommit is not None and headCommit == topCommit:
                 return True
         return False
 
@@ -107,6 +106,7 @@ class GitCommit(Commit):
         errorCode = super().checkSubmittable()
         if errorCode != 0:
             return errorCode
+        return 0
 
     def changeFileImpl(self, change: Change) -> int:
         commitError = VcsHelperError('git', ErrorCategory.commit)
@@ -172,12 +172,7 @@ class GitCommit(Commit):
 
     def submitImpl(self) -> int:
         '''Do git push here'''
-        remoteName, branchName = self.repo.trackingBranchName
-        if remoteName is None:
-            remoteName = self.__remoteName
-        if branchName is None:
-            branchName = self.repo.currentBranchName
-        result = self.repo.push(remoteName, branchName)
+        result = self.repo.push()
         return result
 
     def iterConflictedChanges(self) -> typing.Iterator[Change]:
