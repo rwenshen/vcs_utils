@@ -146,6 +146,9 @@ class GitRepo(Repo):
     # headName: local branch name (if not exists, new head will be created)
     # trackingBranchPath: will be set to git repo
     # commitShaToCheckout: if headName is not set, will check out repo to detached head
+    # author
+    # sshFile: path to ssh; should use path in git bash (e.g. ~/user/.ssh/ssh_file)
+    #           The ssh path will be set to local config
     def __init__(self, root: Path,
             headName: str|None=None,
             commitShaToCheckout: str|None=None,
@@ -177,6 +180,11 @@ class GitRepo(Repo):
                                         exceptionOrExit=True, repoPath=root)
         if author is not None:
             self.author = author
+
+        # ssh
+        if sshFile is not None:
+            config = self.repo.config_writer('repository')
+            config.set_value('core', 'sshCommand', f'ssh -i {sshFile}')
 
         # head (local branch / detached head)
         if headName is not None:
@@ -220,6 +228,7 @@ class GitRepo(Repo):
     def author(self) -> git.Actor:
         return self.__author
 
+    # save author name and email, to local
     def setAuthorNameAndEmail(self, name: str, email: str):
         try:
             writer = self.repo.config_writer('repository')
@@ -333,10 +342,11 @@ class GitRepo(Repo):
         def doFetch(remote) -> int:
             try:
                 progress = GitProgress('fetch')
-                fetchInfo: FetchInfo = remote.fetch(
-                                            progress=progress, prune=True)[0]
-                assert not (fetchInfo.flags | FetchInfo.ERROR) \
-                    and not (fetchInfo.flags | FetchInfo.REJECTED)
+                fetchInfos: typing.Iterable[FetchInfo] = remote.fetch(
+                                                progress=progress, prune=True)
+                for fetchInfo in fetchInfos:
+                    assert not (fetchInfo.flags | FetchInfo.ERROR) \
+                        and not (fetchInfo.flags | FetchInfo.REJECTED)
             except Exception as e:
                 print(e)
                 return self.remoteError.raiseError(
