@@ -85,7 +85,7 @@ class GitRepoTest(VCSTestBase):
         commit = self.repo.getNewCommit()
         authorName = 'user2'
         authorEmail = 'user2@test.com'
-        self.repo.setAuthorAndEmail(authorName, authorEmail)
+        self.repo.setAuthorNameAndEmail(authorName, authorEmail)
         self.assertEqual(commit.author, authorName)
         self.assertEqual(commit.email, authorEmail)
 

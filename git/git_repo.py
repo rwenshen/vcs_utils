@@ -281,7 +281,7 @@ class GitRepo(Repo):
         raise NotImplementedError
 
     # remote: tracking branch
-    def __getTackingBranch(self):
+    def __getTackingBranch(self) -> git.RemoteReference|None:
         if self.isHeadDetached:
             return None
         return self.repo.head.ref.tracking_branch()
@@ -339,14 +339,14 @@ class GitRepo(Repo):
     # remote: fetch
     def fetch(self, remoteName: str|None=None, fetchAll: bool=False) -> int:
 
-        def doFetch(remote) -> int:
+        def doFetch(remote: git.Remote) -> int:
             try:
                 progress = GitProgress('fetch')
                 fetchInfos: typing.Iterable[FetchInfo] = remote.fetch(
                                                 progress=progress, prune=True)
                 for fetchInfo in fetchInfos:
-                    assert not (fetchInfo.flags | FetchInfo.ERROR) \
-                        and not (fetchInfo.flags | FetchInfo.REJECTED)
+                    assert (fetchInfo.flags & (
+                        FetchInfo.ERROR | FetchInfo.REJECTED)) == 0
             except Exception as e:
                 print(e)
                 return self.remoteError.raiseError(
@@ -393,9 +393,8 @@ class GitRepo(Repo):
         progress = GitProgress('push')
         try:
             pushInfo = remote.push(refSpec, progress)[0]
-            assert (pushInfo.flags | PushInfo.NEW_HEAD) \
-                or (pushInfo.flags | PushInfo.FAST_FORWARD) \
-                or (pushInfo.flags | PushInfo.NEW_TAG)
+            assert (pushInfo.flags & (
+                PushInfo.NEW_HEAD | PushInfo.FAST_FORWARD | PushInfo.NEW_TAG))
         except Exception as e:
             print(e)
             return self.remoteError.raiseError(
@@ -509,19 +508,6 @@ class GitRepo(Repo):
         except:
             return None
 
-    #@staticmethod
-    #def check(func):
-    #    def wrapper(self, *args, **kwargs):
-    #        error = VcsHelperError('common', ErrorCategory.repo)
-    #        if self.root is None:
-    #            return error.raiseError(
-    #                    RepoErrorCode.root_unset)
-    #        if not self.root.exist():
-    #            return error.raiseError(
-    #                    RepoErrorCode.root_inexistent, root=self.root)
-    #        return func(self, *args, **kwargs)
-    #    return wrapper
-
     @staticmethod
     def initRepo(root: Path,
             bare: bool=False,
@@ -606,27 +592,29 @@ class GitRepo(Repo):
         except:
             return None
 
-    def getNewCommit(self) -> Commit | None:
+    def getNewCommit(self) -> Commit|None:
         try:
             return GitCommit(self)
         except:
             return None
 
-    def getTopCommit(self) -> typing.Optional[Commit] | None:
-        remoteBranch = self.__getTackingBranch()
-        if remoteBranch is None:
+    def getTopCommit(self) -> Commit|None:
+        # get remote branch
+        trackingBranch = self.__getTackingBranch()
+        if trackingBranch is None:
             return None
-        
+        # fetch
         result = self.fetch()
         if result != 0:
             return None
+
         try:
-            return GitCommit(self, remoteBranch.commit)
+            return GitCommit(self, trackingBranch.commit)
         except:
             # empty remote branch
             return None
 
-    def getCommitFromTag(self, tagName: str) -> typing.Optional[Commit]:
+    def getCommitFromTag(self, tagName: str) -> Commit|None:
         tag = self.__getTag(tagName)
         if tag is None:
             return None
