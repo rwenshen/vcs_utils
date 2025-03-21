@@ -25,6 +25,8 @@ class GitRepoErrorCode(Enum):
     fetch_failure = auto()
     push_failure = auto()
     remote_branch_inexistent = auto()
+    tracking_branch_failure = auto()
+    clear_tracking_branch_failure = auto()
     remote_branch_checkout_failure = auto()
     submodule_remote_inexistent = auto()
     
@@ -75,6 +77,12 @@ VcsHelperError.registerError('git',
 VcsHelperError.registerError('git',
     ErrorCategory.remote, GitRepoErrorCode.remote_branch_inexistent,
     'Remote branch "{remoteBranch}" is inexistent in remote "{remote}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.remote, GitRepoErrorCode.tracking_branch_failure,
+    'Failed to tracking remote branch "{remoteBranch}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.remote, GitRepoErrorCode.clear_tracking_branch_failure,
+    'Failed to clear tracking remote branch!')
 VcsHelperError.registerError('git',
     ErrorCategory.remote, GitRepoErrorCode.remote_branch_checkout_failure,
     'Failed to checkout Remote branch "{remoteBranch}" in remote "{remote}"!')
@@ -139,7 +147,6 @@ class GitProgress(git.remote.RemoteProgress):
             VcsHelperLogger.info(f'\t{op} done; {message}')
         else:
             VcsHelperLogger.info(f'\t{op}: {cur_count} / {max_count}; {message}')
-
 
 class GitRepo(Repo):
 
@@ -293,11 +300,43 @@ class GitRepo(Repo):
             return None
         return str(trackingBranch)
 
-    def setTrackingBranchPath(self, trackingBranchPath:str):
-        raise NotImplementedError
-
-    def clearTrackingBranch(self):
-        raise NotImplementedError
+    def setTrackingBranchPath(self, trackingBranchPath:str|None) -> int:
+        # check head detached
+        result = self.verifyNonDetachedHead()
+        if result != 0:
+            return result
+        # no change
+        if self.trackingBranchPath == trackingBranchPath:
+            return 0
+        # get tracking branch
+        if trackingBranchPath is None:
+            remoteBranch = None
+        else:
+            remoteName, sep, branchName = trackingBranchPath.partition('/')
+            result = self.verifyGetRemoteName(remoteName)
+            if isinstance(result, int):
+                return result
+            try:
+                remoteBranch = self.repo.remotes[0].refs[branchName]
+            except Exception as e:
+                print(e)
+                return self.remoteError.raiseError(
+                                GitRepoErrorCode.remote_branch_inexistent,
+                                remote=remoteName,
+                                remoteBranch=branchName)
+        # do tracking
+        try:
+            self.repo.head.ref.set_tracking_branch(remoteBranch)
+        except Exception as e:
+            print(e)
+            if remoteBranch is None:
+                return self.remoteError.raiseError(
+                            GitRepoErrorCode.clear_tracking_branch_failure)
+            else:
+                return self.remoteError.raiseError(
+                            GitRepoErrorCode.tracking_branch_failure,
+                            remoteBranch=branchName)
+        return 0
 
     def verifyNonDetachedHead(self) -> int:
         if self.isHeadDetached:
@@ -407,10 +446,19 @@ class GitRepo(Repo):
         return self.repo.head.is_detached
 
     @property
-    def headName(self) -> typing.Optional[str]:
+    def headName(self) -> str|None:
         if self.isHeadDetached:
             return None
         return str(self.repo.head.ref)
+
+    def renameHead(self, newName: str) -> int
+        raise NotImplemented
+
+    def createHead(self, name: str, commit: GitCommit|None) -> int:
+        raise NotImplemented
+
+    def deleteHead(self, name: str) -> int:
+        raise NotImplemented
 
     def getHeadCommit(self) -> GitCommit|None:
         try:
@@ -420,9 +468,13 @@ class GitRepo(Repo):
         return GitCommit(self, gitCommit)
 
     def checkoutCommit(self, commit: GitCommit) -> int:
-        errorCode = commit.checkWritable()
+        if self.isHeadDetached and self.repo.head.commit == commit.commitRef:
+            return 0 # already on the commit
+        # check readonly
+        errorCode = commit.checkReadOnly()
         if errorCode != 0:
             return errorCode
+        # do check out
         try:
             self.repo.head.set_reference(commit.commitRef)
         except Exception as e:
@@ -433,7 +485,7 @@ class GitRepo(Repo):
         return 0
 
     def checkoutHead(self, headName: str) -> int:
-        if str(self.repo.head.ref) == headName:
+        if not self.isHeadDetached and str(self.repo.head.ref) == headName:
             return 0 # already on the head
         try:
             headRef = self.repo.heads[headName]

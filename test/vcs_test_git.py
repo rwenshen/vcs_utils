@@ -4,9 +4,10 @@ import unittest
 from .vcs_test_base import VCSTestBase
 from ..common.logger import *
 from ..common.change import ChangeType, Change
-from ..common.commit import CommitErrorCode
+from ..common.commit import Commit, CommitErrorCode
 from ..git import *
 from ..git.git_commit import GitCommitErrorCode
+from ..git.git_repo import GitRepoErrorCode
 
 
 gitTestRoot = Path(r'.\output\vcs_test_git')
@@ -48,6 +49,25 @@ class GitRepoTest(VCSTestBase):
     @property
     def repo2(self) -> GitRepo:
         return self.__class__.repo2
+
+    # common assert
+    def assertCheckoutCommit(self, commit: Commit):
+        result = self.repo.checkoutCommit(commit)
+        self.assertEqual(result, 0)
+        self.assertTrue(self.repo.isHeadDetached)
+        self.assertEqual(commit, self.repo.getHeadCommit())
+
+    def assertCheckoutHead(self, branchName: str):
+        result = self.repo.checkoutHead(branchName)
+        self.assertEqual(result, 0)
+        self.assertFalse(self.repo.isHeadDetached)
+        self.assertEqual(self.repo.getTopCommit(), self.repo.getHeadCommit())
+
+    def assertTrackingBranch(self, trackingBranchPath: str|None):
+        result = self.repo.setTrackingBranchPath(trackingBranchPath)
+        self.assertEqual(result, 0)
+        self.assertFalse(self.repo.isHeadDetached)
+        self.assertEqual(trackingBranchPath, self.repo.trackingBranchPath)
 
     # init repo / clone repo 
     def test_01_01_createRepo(self):
@@ -98,19 +118,65 @@ class GitRepoTest(VCSTestBase):
     def test_02_04_directlySubmit(self):
         self.implTest_commit_directlySubmit(self.repo)
 
+    def test_02_05_01_checkoutCommitAndHead(self):
+        self.assertFalse(self.repo.isHeadDetached)
+        # readonly commit
+        commit = self.repo.getNewCommit()
+        self.assertFailure(lambda: self.repo.checkoutCommit(commit),
+                    True, ErrorCategory.commit, CommitErrorCode.readonly.value)
+        # do check out
+        commit = self.repo.getCommit(self.commitTestAddedList[1])
+        self.assertCheckoutCommit(commit)
+        commit = self.repo.getCommit(self.commitTestAddedList[0])
+        self.assertCheckoutCommit(commit)
+        self.assertCheckoutCommit(commit)
+        # check out head
+        self.assertFailure(lambda: self.repo.checkoutHead('inexistent'),
+                            False, ErrorCategory.repo,
+                            GitRepoErrorCode.check_out_head_inexistent.value)
+        self.assertCheckoutHead('release')
+        self.assertCheckoutHead('release')
+
+    def test_02_05_03_trackingBranch(self):
+        # head detached
+        commit = self.repo.getCommit(self.commitTestAddedList[0])
+        self.assertCheckoutCommit(commit)
+        self.assertFailure(lambda: self.repo.setTrackingBranchPath(None),
+                                        False, ErrorCategory.remote,
+                                        GitRepoErrorCode.head_detached.value)
+        self.assertCheckoutHead('release')
+        # invalid remote
+        self.assertFailure(
+            lambda: self.repo.setTrackingBranchPath('inexistent/release'),
+                                    False, ErrorCategory.remote,
+                                    GitRepoErrorCode.remote_inexistent.value)
+        # inexistent head
+        self.assertFailure(
+            lambda: self.repo.setTrackingBranchPath('origin/inexistent'),
+                                False, ErrorCategory.remote,
+                                GitRepoErrorCode.remote_branch_inexistent.value)
+        # tracking branch
+        self.assertTrackingBranch(None)
+        self.assertTrackingBranch(None)
+        self.assertTrackingBranch('origin/release')
+        self.assertTrackingBranch('origin/release')
+
+    def test_02_05_04_headOperation(self):
+        pass
+
+
     @unittest.skip("skip")
-    def test_02_05_submissionFailure(self):
-        # test save failure
+    def test_02_05_05_submissionFailure(self):
+        # test save empty commit
         def createEmptyCommit():
             return self.repo.getNewCommit('Unused changelist')
         self.implTest_commit_submissionFailure(createEmptyCommit,
-            ErrorCategory.commit, GitCommitErrorCode.nothing_to_commit.value)
-        # test checkout commit function first
+            ErrorCategory.commit, CommitErrorCode.nothing_to_save.value)
+        # test checkout commit / head function first
         commit = self.repo.getNewCommit('Unused changelist')
         self.assertFailure(lambda: self.repo.checkoutCommit(commit),
                         ErrorCategory.commit, CommitErrorCode.writable.value)
-        del commit
-        
+
 # git reset local commit (saved commit)
         localCommit = self.repo.getLocalCommit()
         commit = self.repo.getNewCommit('tmp')
@@ -173,6 +239,6 @@ class GitRepoTest(VCSTestBase):
 
 
 # TODO fetch, multiple remote
+# TODO branch / remote branch
 # TODO submodule
-# TODO branch
 # TODO remote

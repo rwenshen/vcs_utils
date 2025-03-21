@@ -94,17 +94,23 @@ class VCSTestBase(unittest.TestCase):
         self.assertEqual(commit, repo.getTopCommit())
 
     def assertFailure(self, fn: typing.Callable[[], int],
-            isCommon: bool, category: ErrorCategory, errorCode: int):
+            isCommon: bool, category: ErrorCategory, errorCode: int,
+            raiseTypes: typing.Iterable[VcsHelperError.RaiseType] = (
+                VcsHelperError.RaiseType.exception,
+                VcsHelperError.RaiseType.return_code
+            )):
         errorCode = self.__getErrorCode(isCommon, category, errorCode)
         # failure with exception
-        VcsHelperError.raiseType = VcsHelperError.RaiseType.exception
-        with self.assertRaises(VcsHelperException) as context:
-            fn()
-        self.assertTrue(context.exception.code, errorCode)
+        if VcsHelperError.RaiseType.exception in raiseTypes:
+            VcsHelperError.raiseType = VcsHelperError.RaiseType.exception
+            with self.assertRaises(VcsHelperException) as context:
+                fn()
+                self.assertTrue(context.exception.code, errorCode)
         # failure with return code
-        VcsHelperError.raiseType = VcsHelperError.RaiseType.return_code
-        result = fn()
-        self.assertEqual(result, errorCode)
+        if VcsHelperError.RaiseType.return_code in raiseTypes:
+            VcsHelperError.raiseType = VcsHelperError.RaiseType.return_code
+            result = fn()
+            self.assertEqual(result, errorCode)
 
     # test case implementations
     __fileNames = [
