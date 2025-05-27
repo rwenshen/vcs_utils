@@ -6,14 +6,15 @@ import sys
 import os
 import stat
 import typing
+from abc import ABC, abstractmethod
 
-from ..common.logger import *
-from ..common.change import ChangeType, Change
-from ..common.commit import Commit, CommitErrorCode
-from ..common.repo import Repo
+from .._common.logger import *
+from .._common.change import ChangeType, Change
+from .._common.commit import Commit, CommitErrorCode
+from .._common.repo import Repo
 
 
-class VCSTestBase(unittest.TestCase):
+class VCSTestBase(unittest.TestCase, ABC):
 
     testRoot = Path(r'.\output\vcs_test')
 
@@ -31,8 +32,8 @@ class VCSTestBase(unittest.TestCase):
         VcsHelperLogger.getLogger().level= logging.DEBUG
         VcsHelperLogger.getLogger().addHandler(stdoutHandler)
 
-        cls.commitTestAddedList = []
-        cls.vcsName = None
+        cls.__commitTestAddedList: typing.List[int|str] = []
+        cls.__vcsName: str = 'Unknown'
 
     @classmethod
     def tearDownClass(cls):
@@ -42,12 +43,20 @@ class VCSTestBase(unittest.TestCase):
         VcsHelperLogger.info(self.id())
 
     @property
-    def commitTestAddedList(self):
-        return self.__class__.commitTestAddedList
+    def repo(self) -> Repo:
+        raise NotImplementedError
+
+    @property
+    def vcsName(self) -> str:
+        return self.__class__.__vcsName
+
+    @property
+    def commitTestAddedList(self)-> typing.List[int|str]:
+        return self.__class__.__commitTestAddedList
     
     def __getErrorCode(self, isCommon: bool, category: ErrorCategory,
                                                     errorCode: int) -> int:
-        vcsName = 'common' if isCommon else self.__class__.vcsName
+        vcsName = 'common' if isCommon else self.vcsName
         return VcsHelperError.calcErrorCode(vcsName, category, errorCode)
 
     # common functions
@@ -118,6 +127,7 @@ class VCSTestBase(unittest.TestCase):
         'b@1%2#3.txt',
         'c@1%2#3.txt',
     ]
+    @staticmethod
     def __getTextFileContent(fileName: str) -> str:
         return 'Hello txt '+ Path(fileName).stem
 

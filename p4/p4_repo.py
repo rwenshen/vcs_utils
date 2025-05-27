@@ -5,9 +5,9 @@ import typing
 import getpass
 from P4 import P4
 
-from ..common.logger import *
-from ..common.commit import Commit
-from ..common.repo import Repo, RepoErrorCode
+from .._common.logger import *
+from .._common.commit import Commit
+from .._common.repo import Repo, RepoErrorCode
 from .p4_runner import *
 from .p4_commit import P4Commit
 
@@ -72,10 +72,12 @@ VcsHelperError.registerError('p4', ErrorCategory.tag, 0x100,
 class P4Repo(Repo):
 
     def __init__(self,
-            p4Port: typing.Optional[str] = None,
-            p4User: typing.Optional[str] = None,
-            p4Client: typing.Optional[str] = None):
+            p4Port: str|None = None,
+            p4User: str|None = None,
+            p4Client: str|None = None):
         connectionError = VcsHelperError('p4', ErrorCategory.connection)
+        # init
+        self.__info: dict = {}
 
         # connect P4
         self.__p4 = P4()
@@ -114,10 +116,9 @@ class P4Repo(Repo):
         self.__updateClient(exceptionOrExit=True)
 
     def __updateClient(self, exceptionOrExit=False) -> int:
-        result = p4Run(self.p4, 'info')
-        if isinstance(result, VcsHelperErrorWrapper):
-            return result.raiseError(exceptionOrExit=exceptionOrExit)
-        self.__info =  result[0]
+        results = p4Run(self.p4, 'info')
+        errorCode, self.__info = verifyP4RunResultDict(
+                                    results, exceptionOrExit=exceptionOrExit)
         super().__init__(self.clientRoot)
 
         self.__description = f'P4 Repo\n\tPort: {self.p4.port}\n'
@@ -140,7 +141,7 @@ class P4Repo(Repo):
             self.__p4.disconnect()
 
     @property
-    def p4(self):
+    def p4(self) -> P4:
         return self.__p4
 
     @property
@@ -148,7 +149,7 @@ class P4Repo(Repo):
         return self.p4.client
 
     @property
-    def clientRoot(self) -> typing.Optional[Path]:
+    def clientRoot(self) -> Path|None:
         path = self.__info.get('clientRoot', None)
         if path is None:
             return None
@@ -159,11 +160,13 @@ class P4Repo(Repo):
         return self.p4.user
 
     @property
-    def depotRoot(self) -> typing.Optional[Path]:
-        depotRoot = self.getDepotPath(self.clientRoot.joinpath('...'))
-        return depotRoot[:-4]
+    def depotRoot(self) -> Path|None:
+        if self.clientRoot is not None:
+            depotRoot = self.getDepotPath(self.clientRoot.joinpath('...'))
+            return depotRoot[:-4]
+        return None
 
-    def getDepotPath(self, localPath: Path) -> typing.Optional[str]:
+    def getDepotPath(self, localPath: Path) -> str|None:
         result = p4Run(self.p4, 'where',
                         getP4ValidLocalPath(localPath))
         if isinstance(result, VcsHelperErrorWrapper):
@@ -182,11 +185,12 @@ class P4Repo(Repo):
             returnResult=VcsHelperError.RaiseType.return_code):
         def decorator(func):
             def wrapper(self, *args, **kwargs):
-                error = VcsHelperError('p4', ErrorCategory.connection)
+                error = VcsHelperError('p4', ErrorCategory.repo)
                 if self.clientRoot is None:
                     return error.raiseError(P4RepoErrorCode.client_invalid,
                         exceptionOrExit=exceptionOrExit,
-                        returnResult=returnResult)
+                        returnResult=returnResult,
+                        client=self.p4.client)
                 return func(self, *args, **kwargs)
             return wrapper
         return decorator
@@ -423,7 +427,7 @@ class P4Repo(Repo):
             reset: bool=False) -> int:
         rootPath = getP4ValidLocalPath(self.root.joinpath('...'))
         if reset:
-            result = self.clearPendings()
+            result = self.clearPending()
             if result != 0:
                 return result
 
@@ -440,7 +444,7 @@ class P4Repo(Repo):
         return 0
 
     @checkClient.__func__()
-    def clearPendings(self) -> int:
+    def clearPending(self) -> int:
        
         changeInfos = p4Run(self.p4, 'changes', **{
                 '-s': 'pending',

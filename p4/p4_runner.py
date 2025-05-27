@@ -4,8 +4,8 @@ import functools
 from pathlib import Path
 from P4 import P4, P4Exception
 
-from ..common.logger import *
-from ..common.commit import CommitErrorCode
+from .._common.logger import *
+from .._common.commit import CommitErrorCode
 
 
 __all__ = [
@@ -14,6 +14,10 @@ __all__ = [
     'p4Run',
     'p4Fetch',
     'p4Save',
+    'verifyP4RunResultInt',
+    'verifyP4RunResultDict',
+    'verifyP4RunResultList',
+    'verifyP4FetchResultDict',
 ]
 
 
@@ -68,8 +72,15 @@ class P4RunErrorCode(Enum):
 
     tag_last = auto()
 
+    # ungrouped
+    unexpected_results = 0xfffe
+    ungrouped_error = 0xffff
+
 VcsHelperError.registerError('p4',
-    ErrorCategory.ungrouped, 0xffff,
+    ErrorCategory.ungrouped, P4RunErrorCode.unexpected_results,
+    'Unexpect p4 run result {results}!')
+VcsHelperError.registerError('p4',
+    ErrorCategory.ungrouped, P4RunErrorCode.ungrouped_error,
     '{error}')
 
 VcsHelperError.registerError('p4',
@@ -175,25 +186,35 @@ VcsHelperError.registerError('p4',
     'Failed to save label!\n{error}')
 
 
-def processP4RunResultsDefault(results):
+def __processP4RunResultsDefault(results) -> typing.List[typing.Dict]:
     return results
 
-def processP4Exception(e,
+def __processP4Exception(e: Exception|P4Exception|str,
         errorCategory: ErrorCategory=ErrorCategory.ungrouped,
-        errorCode:typing.Optional[int] = 0) -> int:
+        errorCode: int|Enum = 0) -> int|VcsHelperErrorWrapper:
     if isinstance(e, P4Exception):
-        for warning in e.warnings:
-            VcsHelperLogger.warning(warning)
-        if len(e.errors) == 0:
-            return 0
+        p4Exception: P4Exception = e
+        if isinstance(p4Exception.warnings, (list, tuple)):
+            warnings: typing.Iterable[str] = p4Exception.warnings # type: ignore
+            for warning in warnings:
+                VcsHelperLogger.warning(warning)
+        if isinstance(p4Exception.warnings, (list, tuple)):
+            errors: typing.Sized[str] = p4Exception.errors # type: ignore
+            if len(errors) == 0:
+                return 0
         errorWrapper = VcsHelperErrorWrapper(
             'p4', errorCategory, errorCode, error=e)
     else:
-        errorWrapper = VcsHelperErrorWrapper(
-            'p4', ErrorCategory.ungrouped, 0xffff, error=e)
+        errorMsg: str = ''
+        if isinstance(e, Exception):
+            errorMsg = f'Unexpected error in p4Run: {e}'
+        elif isinstance(e, str):
+            errorMsg = e
+        errorWrapper = VcsHelperErrorWrapper('p4', ErrorCategory.ungrouped,
+                                P4RunErrorCode.ungrouped_error, error=errorMsg)
     return errorWrapper
 
-def processP4FileOperationResults(results, format: str) -> int:
+def __processP4FileOperationResults(results, format: str) -> int:
     for result in results:
         if isinstance(result, str):
             VcsHelperLogger.info('\t' + result)
@@ -201,7 +222,7 @@ def processP4FileOperationResults(results, format: str) -> int:
             VcsHelperLogger.info('\t' + format.format(**result))
     return 0
 
-def processP4SubmitResults(results) -> str:
+def __processP4SubmitResults(results) -> int:
     info = results[-1]
     if 'submittedChange' in info:
         changelist = info['submittedChange']
@@ -209,7 +230,7 @@ def processP4SubmitResults(results) -> str:
         return int(changelist)
     assert False, 'Impossible'
 
-def processP4ResolveResults(results) -> int:
+def __processP4ResolveResults(results) -> int:
     index = 0
     while index < len(results):
         resolveInfo = results[index]
@@ -230,85 +251,85 @@ def processP4ResolveResults(results) -> int:
             VcsHelperLogger.info('\t' + result)
     return 0
 
-p4RunResultsProcessors = {
-    'sync': functools.partial(processP4FileOperationResults,
+__p4RunResultsProcessors = {
+    'sync': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was synced.'),
-    'add': functools.partial(processP4FileOperationResults,
+    'add': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was added.'),
-    'edit': functools.partial(processP4FileOperationResults,
+    'edit': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was opened for edit.'),
-    'delete': functools.partial(processP4FileOperationResults,
+    'delete': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was deleted.'),
-    'move': functools.partial(processP4FileOperationResults,
+    'move': functools.partial(__processP4FileOperationResults,
                             format='"{fromFile}" was moved to {depotFile}.'),
-    'revert': functools.partial(processP4FileOperationResults,
+    'revert': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was reverted.'),
-    'shelve': functools.partial(processP4FileOperationResults,
+    'shelve': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was shelved.'),
-    'unshelve': functools.partial(processP4FileOperationResults,
+    'unshelve': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was un-shelved.'),
-    'copy': functools.partial(processP4FileOperationResults,
+    'copy': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was copied with action '\
                                     '"{action}" from "{fromFile}".'),
-    'merge': functools.partial(processP4FileOperationResults,
+    'merge': functools.partial(__processP4FileOperationResults,
                             format='"{depotFile}" was merged from "{fromFile}".'),
-    'resolve': processP4ResolveResults,
-    'submit': processP4SubmitResults,
+    'resolve': __processP4ResolveResults,
+    'submit': __processP4SubmitResults,
 }
 
-p4RunExceptionProcessors = {
-    'sync': functools.partial(processP4Exception,
+__p4RunExceptionProcessors = {
+    'sync': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.remote,
                     errorCode=P4RunErrorCode.sync),
-    'add': functools.partial(processP4Exception,
+    'add': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.add),
-    'edit': functools.partial(processP4Exception,
+    'edit': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.edit),
-    'delete': functools.partial(processP4Exception,
+    'delete': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.delete),
-    'move': functools.partial(processP4Exception,
+    'move': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.move),
-    'revert': functools.partial(processP4Exception,
+    'revert': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.revert),
-    'shelve': functools.partial(processP4Exception,
+    'shelve': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.shelve),
-    'unshelve': functools.partial(processP4Exception,
+    'unshelve': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.unshelve),
-    'copy': functools.partial(processP4Exception,
+    'copy': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.copy),
-    'merge': functools.partial(processP4Exception,
+    'merge': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.merge),
-    'resolve': functools.partial(processP4Exception,
+    'resolve': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.commit,
                     errorCode=P4RunErrorCode.resolve),
-    'changes': functools.partial(processP4Exception,
+    'changes': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.remote,
                     errorCode=P4RunErrorCode.changelists),
-    'submit': functools.partial(processP4Exception,
+    'submit': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.remote,
                     errorCode=P4RunErrorCode.submit),
-    'info': functools.partial(processP4Exception,
+    'info': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.file_stat,
                     errorCode=P4RunErrorCode.info),
-    'where': functools.partial(processP4Exception,
+    'where': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.file_stat,
                     errorCode=P4RunErrorCode.where),
-    'fstat': functools.partial(processP4Exception,
+    'fstat': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.file_stat,
                     errorCode=P4RunErrorCode.fstat),
-    'opened': functools.partial(processP4Exception,
+    'opened': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.file_stat,
                     errorCode=P4RunErrorCode.opened),
-    'describe': functools.partial(processP4Exception,
+    'describe': functools.partial(__processP4Exception,
                     errorCategory=ErrorCategory.file_stat,
                     errorCode=P4RunErrorCode.describe),
 }
@@ -338,36 +359,39 @@ def p4Run(p4: P4, cmd: str, *fileSpecs, **kwargs):
             args.append(str(fileSpec))
 
         results = p4.run(*args)
-    except Exception as e:
-        exceptionProcessFunc = p4RunExceptionProcessors.get(cmd,
-                                    functools.partial(processP4Exception))
+    except P4Exception as e:
+        exceptionProcessFunc = __p4RunExceptionProcessors.get(cmd,
+                                    functools.partial(__processP4Exception))
         return exceptionProcessFunc(e)
+    except Exception as e:
+        VcsHelperLogger.error(f'Unexpected error in p4Run: {e}')
+        return VcsHelperErrorWrapper('p4', ErrorCategory.ungrouped,
+                                    P4RunErrorCode.ungrouped_error, error=e)
 
-    resultProcessFunc = p4RunResultsProcessors.get(
-                                    cmd, processP4RunResultsDefault)
+    resultProcessFunc = __p4RunResultsProcessors.get(
+                                    cmd, __processP4RunResultsDefault)
     return resultProcessFunc(results)
 
-
-p4FetchExceptionProcessors = {
-    'change': functools.partial(processP4Exception,
+__p4FetchExceptionProcessors = {
+    'change': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_changelist),
-    'label': functools.partial(processP4Exception,
+    'label': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.tag,
                         errorCode=P4RunErrorCode.fetch_label),
-    'user': functools.partial(processP4Exception,
+    'user': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_user),
-    'client': functools.partial(processP4Exception,
+    'client': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_client),
-    'stream': functools.partial(processP4Exception,
+    'stream': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_stream),
-    'job': functools.partial(processP4Exception,
+    'job': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_job),
-    'depot': functools.partial(processP4Exception,
+    'depot': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.fetch_depot),
 }
@@ -385,30 +409,30 @@ def p4Fetch(p4: P4, specType: str, name=None, **kwargs):
         fetchFunc = getattr(p4, f'fetch_{specType}')
         return fetchFunc(*args)
     except Exception as e:
-        exceptionProcessFunc = p4FetchExceptionProcessors.get(specType,
-                                    functools.partial(processP4Exception))
+        exceptionProcessFunc = __p4FetchExceptionProcessors.get(specType,
+                                    functools.partial(__processP4Exception))
         return exceptionProcessFunc(e)
 
-p4SaveExceptionProcessors = {
-    'change': functools.partial(processP4Exception,
+__p4SaveExceptionProcessors = {
+    'change': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_changelist),
-    'label': functools.partial(processP4Exception,
+    'label': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.tag,
                         errorCode=P4RunErrorCode.save_label),
-    'user': functools.partial(processP4Exception,
+    'user': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_user),
-    'client': functools.partial(processP4Exception,
+    'client': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_client),
-    'stream': functools.partial(processP4Exception,
+    'stream': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_stream),
-    'job': functools.partial(processP4Exception,
+    'job': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_job),
-    'depot': functools.partial(processP4Exception,
+    'depot': functools.partial(__processP4Exception,
                         errorCategory=ErrorCategory.remote,
                         errorCode=P4RunErrorCode.save_depot),
 }
@@ -425,6 +449,55 @@ def p4Save(p4: P4, specType: str, spec: dict, **kwargs):
         saveFunc = getattr(p4, f'save_{specType}')
         return saveFunc(*args)
     except Exception as e:
-        exceptionProcessFunc = p4SaveExceptionProcessors.get(specType,
-                                    functools.partial(processP4Exception))
+        exceptionProcessFunc = __p4SaveExceptionProcessors.get(specType,
+                                    functools.partial(__processP4Exception))
         return exceptionProcessFunc(e)
+
+def __raiseP4RunResultError(
+        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        **kwargs) -> int:
+    if isinstance(results, VcsHelperErrorWrapper):
+        return results.raiseError(**kwargs)
+    else:
+        error = VcsHelperError('p4', ErrorCategory.ungrouped)
+        exceptionOrExit = kwargs.get('exceptionOrExit', False)
+        return error.raiseError(P4RunErrorCode.unexpected_results,
+                        exceptionOrExit=exceptionOrExit, results=results)
+
+# return: (0, results) if results is int, else (errorCode, 0)
+def verifyP4RunResultInt(
+        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        **kwargs) -> typing.Tuple[int, int]:
+    if isinstance(results, int):
+        return 0, results
+    else:
+        return __raiseP4RunResultError(results, **kwargs), 0
+
+# return: (0, results) if results is list contains only one single dict
+#                      else (errorCode, {})
+def verifyP4RunResultDict(
+        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        **kwargs) -> typing.Tuple[int, typing.Dict]:
+    if isinstance(results, list) and len(results) == 1:
+        return 0, results[0]
+    else:
+        return __raiseP4RunResultError(results, **kwargs), {}
+
+# return: (0, results) if results is list contains dicts, else (errorCode, [])
+def verifyP4RunResultList(
+        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        **kwargs) -> typing.Tuple[int, typing.List[typing.Dict]]:
+    if isinstance(results, list):
+        return 0, results
+    else:
+        return __raiseP4RunResultError(results, **kwargs), []
+
+# return: (0, results) if results is list contains only one single dict
+#                      else (errorCode, {})
+def verifyP4FetchResultDict(
+        result: int|typing.Dict|VcsHelperErrorWrapper,
+        **kwargs) -> typing.Tuple[int, typing.Dict]:
+    if isinstance(result, dict):
+        return 0, result
+    else:
+        return __raiseP4RunResultError(result, **kwargs), {}

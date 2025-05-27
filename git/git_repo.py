@@ -35,8 +35,13 @@ class GitRepoErrorCode(Enum):
     set_author_failure = auto()
     reset_failure = RepoErrorCode.last.value
     check_out_commit_failure = auto()
-    check_out_head_inexistent = auto()
+    inexistent_head = auto()
     check_out_head_failure = auto()
+    existent_new_head_name = auto()
+    rename_head_failure = auto()
+    create_head_failure = auto()
+    delete_current_head_failure = auto()
+    delete_head_failure = auto()
 
     # tag
     tag_create_failure = auto()
@@ -103,11 +108,26 @@ VcsHelperError.registerError('git',
     ErrorCategory.repo, GitRepoErrorCode.check_out_commit_failure,
     'Failed to check out commit "{commitSha}"!')
 VcsHelperError.registerError('git',
-    ErrorCategory.repo, GitRepoErrorCode.check_out_head_inexistent,
-    'Failed to check out head(local branch) "{headName}"! It is not existent.')
+    ErrorCategory.repo, GitRepoErrorCode.inexistent_head,
+    'The head(local branch) "{headName}" is not existent|')
 VcsHelperError.registerError('git',
     ErrorCategory.repo, GitRepoErrorCode.check_out_head_failure,
     'Failed to check out head(local branch) "{headName}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.existent_new_head_name,
+    'Error! The new head(local branch) name "{newHeadName}" is existent!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.rename_head_failure,
+    'Failed to rename current head(local branch) "{headName}" to "{newHeadName}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.create_head_failure,
+    'Failed to create head(local branch) "{headName}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.delete_current_head_failure,
+    'Cannot delete current head(local branch) "{headName}"!')
+VcsHelperError.registerError('git',
+    ErrorCategory.repo, GitRepoErrorCode.delete_head_failure,
+    'Failed to delete head(local branch) "{headName}"!')
 
 VcsHelperError.registerError('git',
     ErrorCategory.tag, GitRepoErrorCode.tag_create_failure,
@@ -445,16 +465,58 @@ class GitRepo(Repo):
     def isHeadDetached(self) -> bool:
         return self.repo.head.is_detached
 
+    def verifyHeadExistent(self, headName: str) -> int:
+        try:
+            self.repo.heads[headName]
+            return 0
+        except Exception as e:
+            print(e)
+            return self.repoError.raiseError(
+                GitRepoErrorCode.inexistent_head,
+                headName=headName)
+
+    def verifyHeadInexistent(self, headName: str) -> int:
+        try:
+            self.repo.heads[headName]
+            return self.repoError.raiseError(
+                GitRepoErrorCode.inexistent_head,
+                headName=headName)
+        except Exception as e:
+            print(e)
+            return self.repoError.raiseError(
+                GitRepoErrorCode.inexistent_head,
+                headName=headName)
+
     @property
-    def headName(self) -> str|None:
+    def currentHeadName(self) -> str|None:
         if self.isHeadDetached:
             return None
         return str(self.repo.head.ref)
 
-    def renameHead(self, newName: str) -> int
-        raise NotImplemented
+    def renameCurrentHead(self, newName: str) -> int:
+        result = self.verifyNonDetachedHead()
+        if result != 0:
+            return result
+        try:
+            self.repo.heads[newName]
 
-    def createHead(self, name: str, commit: GitCommit|None) -> int:
+        except IndexError:
+            pass # new name, go on to rename
+        except Exception as e:
+            print(e)
+
+        self.repo.head.ref.rename(newName)
+
+    def createHead(self, name: str, commit: GitCommit|None=None,
+            checkOut: bool=False) -> int:
+            
+        
+        # existent_new_head_name = auto()
+        # rename_head_failure = auto()
+        # create_head_failure = auto()
+        # delete_current_head_failure = auto()
+        # delete_head_failure = auto()
+
         raise NotImplemented
 
     def deleteHead(self, name: str) -> int:
@@ -492,7 +554,7 @@ class GitRepo(Repo):
         except Exception as e:
             print(e)
             return self.repoError.raiseError(
-                GitRepoErrorCode.check_out_head_inexistent,
+                GitRepoErrorCode.inexistent_head,
                 headName=headName)
         try:
             self.repo.head.set_reference(headRef)

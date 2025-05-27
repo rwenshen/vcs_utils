@@ -1,11 +1,13 @@
 import typing
 from pathlib import Path
 
-from ..common.logger import *
-from ..common.change import ChangeType, Change
-from ..common.commit import Commit, CommitErrorCode
+from .._common.logger import *
+from .._common.change import ChangeType, Change
+from .._common.commit import Commit, CommitErrorCode
 from .p4_runner import *
 
+if typing.TYPE_CHECKING:
+    from .p4_repo import P4Repo
 
 VcsHelperError.registerError('common',
             ErrorCategory.commit, CommitErrorCode.wrong_depot,
@@ -13,20 +15,40 @@ VcsHelperError.registerError('common',
 
 class P4Commit(Commit):
 
-    def __init__(self, repo, commit):
-        super().__init__(repo, commit)
+    def __init__(self, p4Repo: 'P4Repo', p4CommitInfo: typing.Dict):
+        super().__init__(p4Repo, p4CommitInfo)
+
+    @property
+    def p4Repo(self) -> 'P4Repo':
+        return self.repo # type: ignore
 
     @property
     def description(self) -> str:
-        return f'P4 changelist {self.vcsData}:\n'\
-            f'{self.commitRef["Description"]}'
+        if self.changelist < 0:
+            changelistType = 'default'
+        elif self.isWritable:
+            changelistType = 'pending'
+        else:
+            changelistType = 'submitted'
+        
+        desc = f'P4 {changelistType} changelist'
+        if self.changelist > 0:
+            desc += f' {self.changelist}'
+        desc += ':\n'
+        desc += self.commitRef["Description"]
+
+        return desc
 
     @property
-    def vcsData(self):
+    def changelist(self) -> int:
         try:
             return int(self.commitRef["Change"])
         except:
             return -1       # default pending changelist
+
+    @property
+    def vcsData(self) -> int|str:
+        return self.changelist
 
     @property
     def author(self) -> str:
@@ -35,7 +57,7 @@ class P4Commit(Commit):
     @property
     def email(self) -> str:
         userName = self.author
-        return self.repo.p4.fetch_user(userName)[0]['Email']
+        return self.p4Repo.p4.fetch_user(userName)[0]['Email']
 
     @property
     def isWritable(self) -> bool:
@@ -43,20 +65,20 @@ class P4Commit(Commit):
 
     @property
     def hasSaved(self) -> bool:
-        return self.vcsData > 0
+        return self.changelist > 0
 
     @property
     def isEmpty(self) -> bool:
         if self.isWritable:
             # refetch the change
             if self.hasSaved:
-                result = p4Fetch(self.repo.p4, 'change', self.vcsData)
+                result = p4Fetch(self.p4Repo.p4, 'change', self.changelist)
             else:
-                result = p4Fetch(self.repo.p4, 'change')
-            if isinstance(result, VcsHelperErrorWrapper):
-                result.raiseError()
+                result = p4Fetch(self.p4Repo.p4, 'change')
+            errorCode, changeInfo = verifyP4FetchResultDict(result)
+            if errorCode != 0:
                 return True
-            self.commitRef.update(result)
+            self.commitRef.update(changeInfo)
             return self.commitRef.get('Files', 0) == 0
         else:
             return False
@@ -67,7 +89,7 @@ class P4Commit(Commit):
 
     def changeFileImpl(self, change: Change) -> int:
         absPath = self.repo.root.joinpath(change.path)
-        destAbsPath = None
+        destAbsPath = Path()
         if change.destPath is not None:
             destAbsPath = self.repo.root.joinpath(change.destPath)
 
@@ -82,23 +104,22 @@ class P4Commit(Commit):
             ChangeType.delete: 'delete',
             ChangeType.move: 'edit',
         }[change.changeType]
-        changelist = self.vcsData
-        if changelist < 0:
+        if self.changelist < 0:
             changelistArgs = {}
         else:
-            changelistArgs = {'-c': self.vcsData}
+            changelistArgs = {'-c': self.changelist}
 
         if p4Command == 'add':
-            result = p4Run(self.repo.p4, p4Command, '-f',
+            result = p4Run(self.p4Repo.p4, p4Command, '-f',
                         absPath, **changelistArgs)
         else:
-            result = p4Run(self.repo.p4, p4Command,
+            result = p4Run(self.p4Repo.p4, p4Command,
                         getP4ValidLocalPath(absPath), **changelistArgs)
         if isinstance(result, VcsHelperErrorWrapper):
             return result.raiseError()
 
         if change.changeType == ChangeType.move:
-            result = p4Run(self.repo.p4, 'move', 
+            result = p4Run(self.p4Repo.p4, 'move', 
                         getP4ValidLocalPath(absPath), 
                         getP4ValidLocalPath(destAbsPath),
                         **changelistArgs)

@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from .logger import *
 from .change import Change, ChangeErrorCode
 
+if typing.TYPE_CHECKING:
+    from .repo import Repo
 
 class CommitErrorCode(Enum):
     # commit error category
@@ -67,7 +69,7 @@ SHA in Git).'''
         return self.vcsData == other.vcsData
 
     @property
-    def repo(self):
+    def repo(self) -> 'Repo':
         return self.__repo
 
     @property
@@ -84,7 +86,7 @@ SHA in Git).'''
 
     @property
     @abstractmethod
-    def vcsData(self):
+    def vcsData(self) -> int|str:
         raise NotImplemented
 
     @property

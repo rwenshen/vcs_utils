@@ -63,8 +63,8 @@ class ErrorCategory(Enum):
 
 class VcsHelperException(BaseException):
     def __init__(self, code: int=0, message: str=''):
-        self.code = code
-        self.message = message
+        self.code: int = code
+        self.message: str = message
 
     def __str__(self):
         if hasattr(self, 'code') and hasattr(self, 'message'):
@@ -99,15 +99,14 @@ class VcsHelperError:
 
     @staticmethod
     def registerError(vcsName: str, category: ErrorCategory,
-            errorCode: typing.Union[int, Enum],
+            errorCode: int|Enum,
             messageFormat: str):
         errorDict = VcsHelperError.__registeredErrors.setdefault(vcsName, {})
         errorDict = errorDict.setdefault(category, {})
-        if isinstance(errorCode, Enum):
-            errorCode = errorCode.value
-        assert errorCode not in errorDict
-        assert errorCode > 0 and errorCode <= 0xffff
-        errorDict[errorCode] = messageFormat
+        _errorCode = errorCode.value if isinstance(errorCode, Enum) else errorCode
+        assert _errorCode not in errorDict
+        assert _errorCode > 0 and _errorCode <= 0xffff
+        errorDict[_errorCode] = messageFormat
 
     @staticmethod
     def calcErrorCode(vcsName: str, category: ErrorCategory, errorCode: int):
@@ -126,22 +125,22 @@ class VcsHelperError:
         self.__errorDict = VcsHelperError.__registeredErrors\
                                 .get(vcsName, {}).get(category, {})
 
-    def raiseError(self, errorCode: typing.Union[int, Enum],
+    def raiseError(self, errorCode: int|Enum,
             exceptionOrExit: bool=False,
-            returnResult=RaiseType.return_code,
-            **kwargs):
+            returnResult: RaiseType|int=RaiseType.return_code,
+            **kwargs) -> int:
         
         exception = VcsHelperException()
-        if isinstance(errorCode, Enum):
-            errorCode = errorCode.value
-        if errorCode in self.__errorDict:
-            exception.code = self.__errorCode | errorCode
+        _errorCode: int = errorCode.value if isinstance(errorCode, Enum)\
+                                        else errorCode
+        if _errorCode in self.__errorDict:
+            exception.code = self.__errorCode | _errorCode
             try:
-                exception.message = self.__errorDict[errorCode].format(**kwargs)
+                exception.message = self.__errorDict[_errorCode].format(**kwargs)
             except:
-                exception.message = f'Unformatted: "{self.__errorDict[errorCode]}"'
+                exception.message = f'Unformatted: "{self.__errorDict[_errorCode]}"'
         else:
-            exception.code = errorCode
+            exception.code = _errorCode
             exception.message = 'Unregistered error!'
         
         raiseType = VcsHelperError.raiseType
@@ -157,7 +156,7 @@ class VcsHelperError:
             elif returnResult == VcsHelperError.RaiseType.return_code:
                 return exception.code
             else:
-                return returnResult
+                return returnResult if isinstance(returnResult, int) else -1
 
 
 class VcsHelperErrorWrapper:

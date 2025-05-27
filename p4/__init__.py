@@ -1,4 +1,4 @@
-from ..common.logger import *
+from .._common.logger import *
 VcsHelperError.registerVcs('p4', 1)
 VcsHelperError.registerError('p4', ErrorCategory.ungrouped, 1,
                                         'Fatal: P4Python is not installed!')

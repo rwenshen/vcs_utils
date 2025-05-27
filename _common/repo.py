@@ -4,7 +4,6 @@ import typing
 from abc import ABC, abstractmethod
 
 from .logger import *
-from .change import ChangeErrorCode
 from .commit import Commit
 
 
@@ -43,7 +42,7 @@ class Repo(ABC):
             return func(self, *args, **kwargs)
         return wrapper
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path|None):
         self.__root = root
         self.__lastIterResult = 0
 
@@ -55,7 +54,7 @@ class Repo(ABC):
         self.__lastIterResult = value
 
     @property
-    def root(self) -> Path:
+    def root(self) -> Path|None:
         return self.__root
 
     @property
@@ -78,7 +77,7 @@ class Repo(ABC):
         raise NotImplemented
 
     @abstractmethod
-    def clearPendings(self) -> int:
+    def clearPending(self) -> int:
         raise NotImplemented
 
     @abstractmethod

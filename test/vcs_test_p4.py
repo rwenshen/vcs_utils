@@ -5,14 +5,14 @@ import typing
 from ..p4.p4_repo import P4RepoErrorCode
 
 from .vcs_test_base import VCSTestBase
-from ..common.logger import *
-from ..common.change import ChangeType, Change
-from ..common.commit import CommitErrorCode
+from .._common.logger import *
+from .._common.change import ChangeType, Change
+from .._common.commit import CommitErrorCode
+from .._common.repo import Repo
 from ..p4 import *
 from ..p4.p4_runner import *
 from ..p4.p4_runner import P4RunErrorCode
 from ..p4.p4_server import P4Server
-
 
 import unittest
 
@@ -34,35 +34,42 @@ class P4RepoTest(VCSTestBase):
     def setUpClass(cls):
         super(P4RepoTest, cls).setUpClass()
         cls.vcsName = 'p4'
-        cls.server = None
-        cls.repo = None
+        cls._server: P4Server|None = None
+        cls._repo: P4Repo|None = None
         VcsHelperLogger.getLogger().setLevel(logging.INFO)
 
     @classmethod
     def tearDownClass(cls):
         if cls.server is not None:
-            del cls.server
+            del cls._server
         if cls.repo is not None:
-            del cls.repo
+            del cls._repo
         super(P4RepoTest, cls).tearDownClass()
 
     @property
-    def server(self):
-        return self.__class__.server
+    def server(self) -> P4Server:
+        assert self.__class__._server is not None
+        return self.__class__._server
 
     @property
-    def repo(self):
-        return self.__class__.repo
+    def repo(self) -> Repo:
+        assert self.__class__._repo is not None
+        return self.__class__._repo
+
+    @property
+    def p4Repo(self) -> P4Repo:
+        assert self.__class__._repo is not None
+        return self.__class__._repo
 
     # create server and repo
     def test_01_1_createServer(self):
         VcsHelperLogger.info(f'[TEST] Create P4 server at {str(p4LocalServerRoot)}')
-        self.__class__.server = P4Server(p4LocalServerRoot, user=defaultUserName)
+        self.__class__._server = P4Server(p4LocalServerRoot, user=defaultUserName)
 
     def test_01_2_repoCreate(self):
         VcsHelperLogger.info(
             f'[TEST] Create P4 repo {clientName} for user {defaultUserName}')
-        self.__class__.repo = P4Repo(
+        self.__class__._repo = P4Repo(
                 p4Port=self.server.p4.port,
                 p4Client=clientName,
                 p4User=defaultUserName)

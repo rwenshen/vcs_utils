@@ -118,7 +118,7 @@ class GitRepoTest(VCSTestBase):
     def test_02_04_directlySubmit(self):
         self.implTest_commit_directlySubmit(self.repo)
 
-    def test_02_05_01_checkoutCommitAndHead(self):
+    def test_02_05_01_checkoutCommit(self):
         self.assertFalse(self.repo.isHeadDetached)
         # readonly commit
         commit = self.repo.getNewCommit()
@@ -130,6 +130,8 @@ class GitRepoTest(VCSTestBase):
         commit = self.repo.getCommit(self.commitTestAddedList[0])
         self.assertCheckoutCommit(commit)
         self.assertCheckoutCommit(commit)
+
+    def test_02_05_02_checkoutHead(self):
         # check out head
         self.assertFailure(lambda: self.repo.checkoutHead('inexistent'),
                             False, ErrorCategory.repo,
@@ -137,7 +139,13 @@ class GitRepoTest(VCSTestBase):
         self.assertCheckoutHead('release')
         self.assertCheckoutHead('release')
 
-    def test_02_05_03_trackingBranch(self):
+    def test_02_05_03_newHead(self):
+        pass
+
+    def test_02_05_04_renameHead(self):
+        pass
+
+    def test_02_05_06_trackingBranch(self):
         # head detached
         commit = self.repo.getCommit(self.commitTestAddedList[0])
         self.assertCheckoutCommit(commit)
@@ -161,12 +169,8 @@ class GitRepoTest(VCSTestBase):
         self.assertTrackingBranch('origin/release')
         self.assertTrackingBranch('origin/release')
 
-    def test_02_05_04_headOperation(self):
-        pass
-
-
     @unittest.skip("skip")
-    def test_02_05_05_submissionFailure(self):
+    def test_02_05_06_submissionFailure(self):
         # test save empty commit
         def createEmptyCommit():
             return self.repo.getNewCommit('Unused changelist')

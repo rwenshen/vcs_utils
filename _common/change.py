@@ -66,7 +66,7 @@ changeContent: content to apply to file to be changed, current support full cont
     def __str__(self):
         return f'<Change {self.description}>'
 
-    def applyChange(self, absPath: Path, destAbsPath: typing.Optional[Path]):
+    def applyChange(self, absPath: Path, destAbsPath: Path=Path()):
         error = VcsHelperError('common', ErrorCategory.commit)
 
         if self.__fullContent is None:
@@ -113,8 +113,8 @@ changeContent: content to apply to file to be changed, current support full cont
             self.__destPath = self.__destPath.relative_to(parent)
 
     def clone(self,
-            addParent: typing.Optional[Path]=Path(),
-            removeParent: typing.Optional[Path]=Path()) -> 'Change':
+            addParent: Path=Path(),
+            removeParent: Path=Path()) -> 'Change':
         change = Change(self.path, self.changeType, self.destPath)
         if addParent != Path():
             change.addParent(addParent)
