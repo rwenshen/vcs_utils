@@ -14,23 +14,22 @@ class RepoErrorCode(Enum):
 
     last = auto()
 
-VcsHelperError.registerError('common',
-            ErrorCategory.repo, RepoErrorCode.root_unset,
-            'Repo root hasn\'t been set!')
+VcsHelperError.registerError('common', ErrorCategory.repo,
+    RepoErrorCode.root_unset, VcsHelperError.ErrorLevel.fatal,
+    'Repo root hasn\'t been set!')
 
-VcsHelperError.registerError('common',
-            ErrorCategory.repo, RepoErrorCode.root_inexistent,
-            'Repo root "{root}" should exists!')
+VcsHelperError.registerError('common', ErrorCategory.repo,
+    RepoErrorCode.root_inexistent, VcsHelperError.ErrorLevel.fatal,
+    'Repo root "{root}" should exists!')
 
 
 class Repo(ABC):
-
     class SubmissionType(Enum):
         submit_per_save = auto()
         submit_multiple_saves = auto()
 
     @staticmethod
-    def checkRoot(func):
+    def verifyRoot(func):
         def wrapper(self, *args, **kwargs):
             error = VcsHelperError('common', ErrorCategory.repo)
             if self.root is None:
@@ -42,7 +41,7 @@ class Repo(ABC):
             return func(self, *args, **kwargs)
         return wrapper
 
-    def __init__(self, root: Path|None):
+    def __init__(self, root: Path):
         self.__root = root
         self.__lastIterResult = 0
 
@@ -54,7 +53,7 @@ class Repo(ABC):
         self.__lastIterResult = value
 
     @property
-    def root(self) -> Path|None:
+    def root(self) -> Path:
         return self.__root
 
     @property
@@ -68,51 +67,51 @@ class Repo(ABC):
         raise NotImplemented
 
     @abstractmethod
-    def clone(self, root: Path, force: bool=False, **kwargs) -> int:
+    def clone(self, root: Path, force: bool=False, **kwargs) -> bool:
         raise NotImplemented
 
     @abstractmethod
-    def sync(self, commit: typing.Optional[Commit]=None,
-            reset: bool=False) -> int:
+    def sync(self, commit: Commit|None=None,
+            reset: bool=False) -> bool:
         raise NotImplemented
 
     @abstractmethod
-    def clearPending(self) -> int:
+    def clearPending(self) -> bool:
         raise NotImplemented
 
     @abstractmethod
-    def getCommit(self, vcsCommitInfo) -> typing.Optional[Commit]:
+    def getCommit(self, vcsCommitInfo) -> Commit|None:
         raise NotImplemented
 
     @abstractmethod
-    def getNewCommit(self) -> Commit | None:
+    def getNewCommit(self) -> Commit|None:
         raise NotImplemented
 
     @abstractmethod
-    def getTopCommit(self) -> Commit | None:
+    def getTopCommit(self) -> Commit|None:
         raise NotImplemented
 
     @abstractmethod
-    def getCommitFromTag(self, tagName: str) -> typing.Optional[Commit]:
+    def getCommitFromTag(self, tagName: str) -> Commit|None:
         raise NotImplemented
 
     @abstractmethod
-    def setTag(self, tagName: str, commit: Commit, message: str) -> int:
+    def setTag(self, tagName: str, commit: Commit, message: str) -> bool:
         raise NotImplemented
 
     @abstractmethod
-    def deleteTag(self, tagName: str) -> int:
+    def deleteTag(self, tagName: str) -> bool:
         raise NotImplemented
 
     @abstractmethod
-    def getTagMessage(self, tagName: str) -> typing.Optional[str]:
+    def getTagMessage(self, tagName: str) -> str|None:
         raise NotImplemented
 
     @abstractmethod
-    def iterCommits(self, after: typing.Optional[Commit] = None
+    def iterCommits(self, after: Commit|None = None
             ) -> typing.Iterator[Commit]:
         raise NotImplemented
 
     @abstractmethod
-    def submit(self, commit: Commit) -> int:
+    def submit(self, commit: Commit) -> bool:
         raise NotImplemented

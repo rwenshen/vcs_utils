@@ -1,6 +1,6 @@
 import logging
 from enum import Enum, auto
-import typing
+from dataclasses import dataclass
 
 
 __all__ = [
@@ -52,13 +52,13 @@ class VcsHelperLogger:
 
 class ErrorCategory(Enum):
 
-        ungrouped = 0
-        repo = auto()
-        connection = auto()
-        remote = auto()
-        commit = auto()
-        file_stat = auto()
-        tag = auto()
+    ungrouped = 0
+    repo = auto()
+    connection = auto()
+    remote = auto()
+    commit = auto()
+    file_stat = auto()
+    tag = auto()
 
 
 class VcsHelperException(BaseException):
@@ -74,15 +74,27 @@ class VcsHelperException(BaseException):
     def __eq__(self, other):
         return self.code == other.code
 
+
 class VcsHelperError:
+
+    class ErrorLevel(Enum):
+        warning = auto()    # warning, continue current operation
+        error = auto()      # error, exit current operation
+        fatal = auto()      # fatal error, raise exception or exit directly
 
     class RaiseType(Enum):
         exception = auto()
         exit_code = auto()
-        return_code = auto()
 
+    @dataclass
+    class ErrorDefinition:
+        category: ErrorCategory
+        code: int
+        level: 'VcsHelperError.ErrorLevel'
+        messageFormat: str
 
-    raiseType = RaiseType.return_code
+    raiseType = RaiseType.exception
+    lastErrorCode: int = 0
 
     __registeredVcs = {
         'common': 0,
@@ -99,14 +111,19 @@ class VcsHelperError:
 
     @staticmethod
     def registerError(vcsName: str, category: ErrorCategory,
-            errorCode: int|Enum,
+            errorCode: int|Enum, errorLevel: ErrorLevel,
             messageFormat: str):
         errorDict = VcsHelperError.__registeredErrors.setdefault(vcsName, {})
         errorDict = errorDict.setdefault(category, {})
         _errorCode = errorCode.value if isinstance(errorCode, Enum) else errorCode
         assert _errorCode not in errorDict
         assert _errorCode > 0 and _errorCode <= 0xffff
-        errorDict[_errorCode] = messageFormat
+        errorDict[_errorCode] = VcsHelperError.ErrorDefinition(
+            category=category,
+            code=_errorCode,
+            level=errorLevel,
+            messageFormat=messageFormat
+        )
 
     @staticmethod
     def calcErrorCode(vcsName: str, category: ErrorCategory, errorCode: int):
@@ -125,50 +142,55 @@ class VcsHelperError:
         self.__errorDict = VcsHelperError.__registeredErrors\
                                 .get(vcsName, {}).get(category, {})
 
-    def raiseError(self, errorCode: int|Enum,
-            exceptionOrExit: bool=False,
-            returnResult: RaiseType|int=RaiseType.return_code,
-            **kwargs) -> int:
-        
+    # Raise errors:
+    #   warning: log warning message, return False (means continue current operation)
+    #   error: log error message, return True (means exit current operation)
+    #   fatal: log error message, raise exception or exit directly
+    def raiseError(self, errorCode: int|Enum, **kwargs) -> bool:
         exception = VcsHelperException()
         _errorCode: int = errorCode.value if isinstance(errorCode, Enum)\
                                         else errorCode
         if _errorCode in self.__errorDict:
-            exception.code = self.__errorCode | _errorCode
+            errorDef = self.__errorDict[_errorCode]
+            exception.code = self.__errorCode | errorDef.code
             try:
-                exception.message = self.__errorDict[_errorCode].format(**kwargs)
+                exception.message = errorDef.messageFormat.format(**kwargs)
             except:
-                exception.message = f'Unformatted: "{self.__errorDict[_errorCode]}"'
+                exception.message = f'Unformatted: "{errorDef.messageFormat}"'
+            errorLevel = errorDef.level
         else:
             exception.code = _errorCode
             exception.message = 'Unregistered error!'
+            errorLevel = VcsHelperError.ErrorLevel.fatal # treat as fatal
         
-        raiseType = VcsHelperError.raiseType
-        if exceptionOrExit and raiseType == VcsHelperError.RaiseType.return_code:
-            raiseType = VcsHelperError.RaiseType.exception
-
-        VcsHelperLogger.error(exception.message)
-        if raiseType == VcsHelperError.RaiseType.exception:
-            raise exception
-        else:
-            if raiseType == VcsHelperError.RaiseType.exit_code:
-                exit(exception.code)
-            elif returnResult == VcsHelperError.RaiseType.return_code:
-                return exception.code
-            else:
-                return returnResult if isinstance(returnResult, int) else -1
-
+        match errorLevel:
+            case VcsHelperError.ErrorLevel.warning:
+                VcsHelperLogger.warning(exception.message)
+                VcsHelperError.lastErrorCode = exception.code
+                return False
+            case VcsHelperError.ErrorLevel.error:
+                VcsHelperLogger.error(exception.message)
+                VcsHelperError.lastErrorCode = exception.code
+                return True
+            case VcsHelperError.ErrorLevel.fatal:
+                VcsHelperLogger.critical(exception.message)
+                if VcsHelperError.raiseType == VcsHelperError.RaiseType.exception:
+                    raise exception
+                else:
+                    exit(exception.code)
+            case _:
+                assert False, 'Unknown error level!'
 
 class VcsHelperErrorWrapper:
 
     def __init__(self, vcsName: str, category: ErrorCategory,
-            errorCode:  typing.Union[int, Enum], *args, **kwargs):
+            errorCode: int|Enum, *args, **kwargs):
         self.error = VcsHelperError(vcsName, category)
         self.code = errorCode
         self.args = args
         self.kwargs = kwargs
 
-    def raiseError(self, **kwargs):
+    def raiseError(self, **kwargs) -> bool:
         newKwargs = {}
         newKwargs.update(self.kwargs)
         newKwargs.update(kwargs)
