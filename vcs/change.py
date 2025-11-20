@@ -1,11 +1,11 @@
 from enum import Enum, auto
 from pathlib import Path
+from dataclasses import dataclass
 
 from .logger import *
 
 
 class ChangeErrorCode(Enum):
-    # change error category
     path_absolute = 0x1000 # 0-0xfff, reserved for vcs specific
     add_existent_file = auto()
     nothing_to_apply = auto()
@@ -13,19 +13,26 @@ class ChangeErrorCode(Enum):
 
     last = auto()
 
-
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    ChangeErrorCode.path_absolute, VcsHelperError.ErrorLevel.error,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    ChangeErrorCode.path_absolute, VcsErrorManager.ErrorLevel.error,
     '"{path}" is absolute.\nPath in change must be relative!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    ChangeErrorCode.add_existent_file, VcsHelperError.ErrorLevel.error,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    ChangeErrorCode.add_existent_file, VcsErrorManager.ErrorLevel.error,
     'Trying to add an existent file "{path}"!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    ChangeErrorCode.nothing_to_apply, VcsHelperError.ErrorLevel.warning,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    ChangeErrorCode.nothing_to_apply, VcsErrorManager.ErrorLevel.warning,
     'Nothing to apply for "{change_desc}"! Skipped.')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    ChangeErrorCode.nothing_to_apply_for_delete, VcsHelperError.ErrorLevel.warning,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    ChangeErrorCode.nothing_to_apply_for_delete, VcsErrorManager.ErrorLevel.warning,
     'Nothing to apply for "{change_desc}"! Skipped.')
+
+
+@dataclass
+class VcsResultChange(VcsResult):
+    def __post_init__(self):
+        if bool(self.result):
+            assert isinstance(self.resultData, Change)
+
 
 class ChangeType(Enum):
     ''' Type of a change.'''
@@ -37,65 +44,71 @@ class ChangeType(Enum):
 
 
 class Change:
-    ''' A file change.
+    ''' Hold a file change.
 All path should be relative.
-filePath: relative file path to change
-changeType: ChangeType[add, delete, edit, move]
-destPath: relative file path for the destination of move
-changeContent: content to apply to file to be changed, current support full content only'''
+- filePath: relative file path to change
+- changeType: ChangeType[add, delete, edit, move]
+- destPath: relative file path for the destination of move
+- changeContent: content to apply to file to be changed, current support full
+    content only
+'''
 
-    def __verifyPath(self, path: Path) -> bool:
-        error = VcsHelperError('common', ErrorCategory.commit)
+    def __verifyPath(self, path: Path) -> VcsResult:
+        errorManager = VcsErrorManager('common', ErrorCategory.commit)
         if path.is_absolute():
-            if error.raiseError(
-                    ChangeErrorCode.path_absolute, path=str(path)):
-                return False
-        return True
+            return errorManager.raiseError(
+                    ChangeErrorCode.path_absolute, path=str(path))
+        return VcsResult.createSuccess()
 
     @staticmethod
     def createAddChange(filePath: Path,
-            changeContent: bytearray|None=None) -> 'Change|None':
+            changeContent: bytearray|None=None) -> VcsResultChange:
         change = Change()
-        if not change.__verifyPath(filePath):
-            return None
+        verifyResult = change.__verifyPath(filePath)
+        if not verifyResult:
+            return VcsResultChange.copyError(verifyResult)
         change.__path = filePath
         change.__changeType = ChangeType.add
         change.__fullContent = changeContent
-        return change
+        return VcsResultChange.createSuccess(change)
 
     @staticmethod
-    def createDeleteChange(filePath: Path) -> 'Change|None':
+    def createDeleteChange(filePath: Path) -> VcsResultChange:
         change = Change()
-        if not change.__verifyPath(filePath):
-            return None
+        verifyResult = change.__verifyPath(filePath)
+        if not verifyResult:
+            return VcsResultChange.copyError(verifyResult)
         change.__path = filePath
         change.__changeType = ChangeType.delete
-        return change
+        return VcsResultChange.createSuccess(change)
 
     @staticmethod
     def createEditChange(filePath: Path,
-            changeContent: bytearray|None=None) -> 'Change|None':
+            changeContent: bytearray|None=None) -> VcsResultChange:
         change = Change()
-        if not change.__verifyPath(filePath):
-            return None
+        verifyResult = change.__verifyPath(filePath)
+        if not verifyResult:
+            return VcsResultChange.copyError(verifyResult)
         change.__path = filePath
         change.__changeType = ChangeType.edit
         change.__fullContent = changeContent
-        return change
+        return VcsResultChange.createSuccess(change)
 
     @staticmethod
     def createMoveChange(filePath: Path, destPath: Path,
-            changeContent: bytearray|None=None) -> 'Change|None':
+            changeContent: bytearray|None=None) -> VcsResultChange:
         change = Change()
-        if not change.__verifyPath(filePath):
-            return None
-        if not change.__verifyPath(destPath):
-            return None
+        verifyResult = change.__verifyPath(filePath)
+        if not verifyResult:
+            return VcsResultChange.copyError(verifyResult)
+        verifyResult = change.__verifyPath(destPath)
+        if not verifyResult:
+            return VcsResultChange.copyError(verifyResult)
         change.__path = filePath
         change.__changeType = ChangeType.move
         change.__destPath = destPath
         change.__fullContent = changeContent
-        return change
+        return VcsResultChange.createSuccess(change)
 
     def __init__(self): 
         self.__path = Path()
@@ -107,17 +120,16 @@ changeContent: content to apply to file to be changed, current support full cont
         return f'<Change {self.description}>'
 
     def applyChangeContent(
-            self, absPath: Path, destAbsPath: Path=Path()) -> bool:
-        error = VcsHelperError('common', ErrorCategory.commit)
+            self, absPath: Path, destAbsPath: Path=Path()) -> VcsResult:
+        errorManager = VcsErrorManager('common', ErrorCategory.commit)
         
         if self.changeType == ChangeType.delete:
-            error.raiseError(
-                ChangeErrorCode.nothing_to_apply_for_delete,
-                change_desc=str(self))
-            return False
+            return errorManager.raiseError(
+                                ChangeErrorCode.nothing_to_apply_for_delete,
+                                change_desc=str(self))
 
         if self.__fullContent is None:
-            error.raiseError(
+            errorManager.raiseError(
                 ChangeErrorCode.nothing_to_apply,
                 change_desc=str(self))
             return False
@@ -126,15 +138,14 @@ changeContent: content to apply to file to be changed, current support full cont
             try:
                 absPath.touch(exist_ok=False)
             except:
-                error.raiseError(
-                    ChangeErrorCode.add_existent_file, path=absPath)
-                return False
+                return errorManager.raiseError(
+                                ChangeErrorCode.add_existent_file, path=absPath)
 
         if self.changeType == ChangeType.move:
             destAbsPath.write_bytes(self.__fullContent)
         else:
             absPath.write_bytes(self.__fullContent)
-        return True
+        return VcsResult.createSuccess()
 
     #def addParent(self, parent: Path):
     #    if parent == Path():

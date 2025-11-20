@@ -10,11 +10,11 @@ class P4ServerErrorCode(Enum):
     no_executable = auto()
     no_connection = auto()
 
-VcsHelperError.registerError('p4', ErrorCategory.server,
-    P4ServerErrorCode.no_executable, VcsHelperError.ErrorLevel.fatal,
+VcsErrorManager.registerError('p4', ErrorCategory.server,
+    P4ServerErrorCode.no_executable, VcsErrorManager.ErrorLevel.fatal,
     'P4 executable not found! Make sure its path is in PATH.')
-VcsHelperError.registerError('p4', ErrorCategory.server,
-    P4ServerErrorCode.no_connection, VcsHelperError.ErrorLevel.fatal,
+VcsErrorManager.registerError('p4', ErrorCategory.server,
+    P4ServerErrorCode.no_connection, VcsErrorManager.ErrorLevel.fatal,
     'Unable to connect to P4 server. Failed to create P4 server.')
 
 
@@ -24,7 +24,7 @@ class P4Server:
             user: str='admin', description:str='P4 Test Server'):
         self._p4d: subprocess.Popen|None = None
         self._p4: P4|None = None
-        self._error = VcsHelperError('p4', ErrorCategory.server)
+        self._error = VcsErrorManager('p4', ErrorCategory.server)
         
         # verify p4d
         p4dCmd = 'p4d'

@@ -4,16 +4,17 @@ import functools
 from pathlib import Path
 from P4 import P4, P4Exception
 
-from .._common.logger import *
-from .._common.commit import CommitErrorCode
+from ..logger import *
+from ..commit import CommitErrorCode
+from .p4_filespec import *
 
 
 __all__ = [
-    'getP4ValidLocalPath',
-    'getLocalPathFromP4',
     'p4Run',
     'p4Fetch',
     'p4Save',
+
+    'processP4RunResultsFileOpt',
     'verifyP4RunResultInt',
     'verifyP4RunResultDict',
     'verifyP4RunResultList',
@@ -76,151 +77,130 @@ class P4RunErrorCode(Enum):
     unexpected_results = 0xfffe
     ungrouped_error = 0xffff
 
-VcsHelperError.registerError('p4',
-    ErrorCategory.ungrouped, P4RunErrorCode.unexpected_results,
+VcsErrorManager.registerError('p4', ErrorCategory.ungrouped,
+    P4RunErrorCode.unexpected_results, VcsErrorManager.ErrorLevel.error,
     'Unexpect p4 run result {results}!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.ungrouped, P4RunErrorCode.ungrouped_error,
     '{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.sync,
     'Failed to sync!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.changelists,
     'Failed to query changelists!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.submit,
     'Failed to submit changelists!\n{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_changelist,
     'Failed to fetch changelists!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_user,
     'Failed to fetch user!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_client,
     'Failed to fetch client!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_stream,
     'Failed to fetch stream!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_job,
     'Failed to fetch job!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.fetch_depot,
     'Failed to fetch depot!\n{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_changelist,
     'Failed to save changelists!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_user,
     'Failed to save user!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_client,
     'Failed to save client!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_stream,
     'Failed to save stream!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_job,
     'Failed to save job!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.remote, P4RunErrorCode.save_depot,
     'Failed to save depot!\n{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.add,
     'Failed to add!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.edit,
     'Failed to open for edit!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.delete,
     'Failed to delete!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.move,
     'Failed to move!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.revert,
     'Failed to revert!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.shelve,
     'Failed to shelve!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.unshelve,
     'Failed to un-shelve!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.copy,
     'Failed to copy!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.merge,
     'Failed to merge!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.commit, P4RunErrorCode.resolve,
     'Failed to resolve!\n{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.file_stat, P4RunErrorCode.info,
     'Failed to query p4 info!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.file_stat, P4RunErrorCode.where,
     'Failed to query where!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.file_stat, P4RunErrorCode.fstat,
     'Failed to query fstat!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.file_stat, P4RunErrorCode.opened,
     'Failed to query opened!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.file_stat, P4RunErrorCode.describe,
     'Failed to describe changelist!\n{error}')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.tag, P4RunErrorCode.fetch_label,
     'Failed to fetch label!\n{error}')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.tag, P4RunErrorCode.save_label,
     'Failed to save label!\n{error}')
 
-
-def __processP4RunResultsDefault(results) -> typing.List[typing.Dict]:
-    return results
-
-def __processP4Exception(e: Exception|P4Exception|str,
+def __processP4Exception(e: P4Exception,
         errorCategory: ErrorCategory=ErrorCategory.ungrouped,
-        errorCode: int|Enum = 0) -> int|VcsHelperErrorWrapper:
-    if isinstance(e, P4Exception):
-        p4Exception: P4Exception = e
-        if isinstance(p4Exception.warnings, (list, tuple)):
-            warnings: typing.Iterable[str] = p4Exception.warnings # type: ignore
-            for warning in warnings:
-                VcsHelperLogger.warning(warning)
-        if isinstance(p4Exception.warnings, (list, tuple)):
-            errors: typing.Sized[str] = p4Exception.errors # type: ignore
-            if len(errors) == 0:
-                return 0
-        errorWrapper = VcsHelperErrorWrapper(
-            'p4', errorCategory, errorCode, error=e)
-    else:
-        errorMsg: str = ''
-        if isinstance(e, Exception):
-            errorMsg = f'Unexpected error in p4Run: {e}'
-        elif isinstance(e, str):
-            errorMsg = e
-        errorWrapper = VcsHelperErrorWrapper('p4', ErrorCategory.ungrouped,
-                                P4RunErrorCode.ungrouped_error, error=errorMsg)
+        errorCode: int|Enum = 0) -> VcsErrorManagerWrapper:
+    p4Exception: P4Exception = e
+    if isinstance(p4Exception.warnings, (list, tuple)):
+        warnings: typing.Iterable[str] = p4Exception.warnings # type: ignore
+        for warning in warnings:
+            VcsHelperLogger.warning(warning)
+    if isinstance(p4Exception.errors, (list, tuple)):
+        errors: typing.Sized[str] = p4Exception.errors # type: ignore
+        if len(errors) == 0:
+            assert False
+    errorWrapper = VcsErrorManagerWrapper(
+        'p4', errorCategory, errorCode, error=e)
     return errorWrapper
-
-def __processP4FileOperationResults(results, format: str) -> int:
-    for result in results:
-        if isinstance(result, str):
-            VcsHelperLogger.info('\t' + result)
-        else:
-            VcsHelperLogger.info('\t' + format.format(**result))
-    return 0
 
 def __processP4SubmitResults(results) -> int:
     info = results[-1]
@@ -250,32 +230,6 @@ def __processP4ResolveResults(results) -> int:
         else:
             VcsHelperLogger.info('\t' + result)
     return 0
-
-__p4RunResultsProcessors = {
-    'sync': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was synced.'),
-    'add': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was added.'),
-    'edit': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was opened for edit.'),
-    'delete': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was deleted.'),
-    'move': functools.partial(__processP4FileOperationResults,
-                            format='"{fromFile}" was moved to {depotFile}.'),
-    'revert': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was reverted.'),
-    'shelve': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was shelved.'),
-    'unshelve': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was un-shelved.'),
-    'copy': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was copied with action '\
-                                    '"{action}" from "{fromFile}".'),
-    'merge': functools.partial(__processP4FileOperationResults,
-                            format='"{depotFile}" was merged from "{fromFile}".'),
-    'resolve': __processP4ResolveResults,
-    'submit': __processP4SubmitResults,
-}
 
 __p4RunExceptionProcessors = {
     'sync': functools.partial(__processP4Exception,
@@ -334,30 +288,17 @@ __p4RunExceptionProcessors = {
                     errorCode=P4RunErrorCode.describe),
 }
 
-def getP4ValidLocalPath(p: Path) -> str:
-    file = str(p)
-    file = file.replace('%', '%25')
-    file = file.replace('@', '%40')
-    file = file.replace('#', '%23')
-    return file
 
-def getLocalPathFromP4(p: Path) -> str:
-    file = str(p)
-    file = file.replace('%25', '%')
-    file = file.replace('%40', '@')
-    file = file.replace('%23', '#')
-    return file
+def p4Run(p4: P4, cmd: str, *fileSpecs: P4FileSpec, **kwargs) -> VcsResult:
+    args = [cmd]
+    for option, value in kwargs.items():
+        args.append(str(option))
+        if not isinstance(value, bool):
+            args.append(str(value))
+    for fileSpec in fileSpecs:
+        args.append(fileSpec.escaped)
 
-def p4Run(p4: P4, cmd: str, *fileSpecs, **kwargs):
     try:
-        args = [cmd]
-        for option, value in kwargs.items():
-            args.append(str(option))
-            if not isinstance(value, bool):
-                args.append(str(value))
-        for fileSpec in fileSpecs:
-            args.append(str(fileSpec))
-
         results = p4.run(*args)
     except P4Exception as e:
         exceptionProcessFunc = __p4RunExceptionProcessors.get(cmd,
@@ -365,12 +306,10 @@ def p4Run(p4: P4, cmd: str, *fileSpecs, **kwargs):
         return exceptionProcessFunc(e)
     except Exception as e:
         VcsHelperLogger.error(f'Unexpected error in p4Run: {e}')
-        return VcsHelperErrorWrapper('p4', ErrorCategory.ungrouped,
+        return VcsErrorManagerWrapper('p4', ErrorCategory.ungrouped,
                                     P4RunErrorCode.ungrouped_error, error=e)
 
-    resultProcessFunc = __p4RunResultsProcessors.get(
-                                    cmd, __processP4RunResultsDefault)
-    return resultProcessFunc(results)
+    return results
 
 __p4FetchExceptionProcessors = {
     'change': functools.partial(__processP4Exception,
@@ -454,19 +393,50 @@ def p4Save(p4: P4, specType: str, spec: dict, **kwargs):
         return exceptionProcessFunc(e)
 
 def __raiseP4RunResultError(
-        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        results: int|typing.List[typing.Dict]|VcsErrorManagerWrapper,
         **kwargs) -> int:
-    if isinstance(results, VcsHelperErrorWrapper):
+    if isinstance(results, VcsErrorManagerWrapper):
         return results.raiseError(**kwargs)
     else:
-        error = VcsHelperError('p4', ErrorCategory.ungrouped)
+        error = VcsErrorManager('p4', ErrorCategory.ungrouped)
         exceptionOrExit = kwargs.get('exceptionOrExit', False)
         return error.raiseError(P4RunErrorCode.unexpected_results,
                         exceptionOrExit=exceptionOrExit, results=results)
 
+__p4RunResultsFileOptFormatDict = {
+    'sync': '"{depotFile}" was synced.',
+    'add': '"{depotFile}" was added.',
+    'edit': '"{depotFile}" was opened for edit.',
+    'delete': '"{depotFile}" was deleted.',
+    'move': '"{fromFile}" was moved to {depotFile}.',
+    'revert': '"{depotFile}" was reverted.',
+    'shelve': '"{depotFile}" was shelved.',
+    'unshelve': '"{depotFile}" was un-shelved.',
+    'copy': '"{depotFile}" was copied with action "{action}" from "{fromFile}".',
+    'merge': '"{depotFile}" was merged from "{fromFile}".',
+    #'resolve': __processP4ResolveResults,
+    #'submit': __processP4SubmitResults,
+}
+
+def processP4RunResultsFileOpt(
+        optCmd: str,
+        results: typing.List[typing.Dict]|VcsErrorManagerWrapper,
+        **kwargs) -> int:
+    if isinstance(results, list):
+        for result in results:
+            if isinstance(result, str):
+                VcsHelperLogger.info('\t' + result)
+            else:
+                logFormat = __p4RunResultsFileOptFormatDict.get(optCmd,
+                                        f'Unknown processed command: {optCmd}')
+                VcsHelperLogger.info('\t' + logFormat.format(**result))
+        return 0
+    else:
+        return __raiseP4RunResultError(results, **kwargs)
+
 # return: (0, results) if results is int, else (errorCode, 0)
 def verifyP4RunResultInt(
-        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        results: int|typing.List[typing.Dict]|VcsErrorManagerWrapper,
         **kwargs) -> typing.Tuple[int, int]:
     if isinstance(results, int):
         return 0, results
@@ -476,7 +446,7 @@ def verifyP4RunResultInt(
 # return: (0, results) if results is list contains only one single dict
 #                      else (errorCode, {})
 def verifyP4RunResultDict(
-        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        results: int|typing.List[typing.Dict]|VcsErrorManagerWrapper,
         **kwargs) -> typing.Tuple[int, typing.Dict]:
     if isinstance(results, list) and len(results) == 1:
         return 0, results[0]
@@ -485,7 +455,7 @@ def verifyP4RunResultDict(
 
 # return: (0, results) if results is list contains dicts, else (errorCode, [])
 def verifyP4RunResultList(
-        results: int|typing.List[typing.Dict]|VcsHelperErrorWrapper,
+        results: int|typing.List[typing.Dict]|VcsErrorManagerWrapper,
         **kwargs) -> typing.Tuple[int, typing.List[typing.Dict]]:
     if isinstance(results, list):
         return 0, results
@@ -495,7 +465,7 @@ def verifyP4RunResultList(
 # return: (0, results) if results is list contains only one single dict
 #                      else (errorCode, {})
 def verifyP4FetchResultDict(
-        result: int|typing.Dict|VcsHelperErrorWrapper,
+        result: int|typing.Dict|VcsErrorManagerWrapper,
         **kwargs) -> typing.Tuple[int, typing.Dict]:
     if isinstance(result, dict):
         return 0, result

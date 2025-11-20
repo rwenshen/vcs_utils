@@ -2,12 +2,12 @@ from pathlib import Path
 import unittest
 
 from .vcs_test_base import VCSTestBase
-from ..common.logger import *
-from ..common.change import ChangeType, Change
-from ..common.commit import Commit, CommitErrorCode
-from ..git import *
-from ..git.git_commit import GitCommitErrorCode
-from ..git.git_repo import GitRepoErrorCode
+from ..vcs.logger import *
+from ..vcs.change import ChangeType, Change
+from ..vcs.commit import Commit, CommitErrorCode
+from ..vcs.git import *
+from ..vcs.git.git_commit import GitCommitErrorCode
+from ..vcs.git.git_repo import GitRepoErrorCode
 
 
 gitTestRoot = Path(r'.\output\vcs_test_git')

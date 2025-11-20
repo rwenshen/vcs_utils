@@ -3,9 +3,9 @@ from enum import Enum, auto
 from pathlib import Path
 import git
 
-from ..common.logger import *
-from ..common.change import ChangeType, Change
-from ..common.commit import Commit, CommitErrorCode
+from ..logger import *
+from ..change import ChangeType, Change
+from ..commit import Commit, CommitErrorCode
 
 class GitCommitErrorCode(Enum):
     add_failure = CommitErrorCode.last.value
@@ -14,16 +14,16 @@ class GitCommitErrorCode(Enum):
     commit_failure = auto()
     head_detached = auto()
 
-VcsHelperError.registerError('git',
-            ErrorCategory.commit, GitCommitErrorCode.add_failure,
+VcsErrorManager.registerError('git', ErrorCategory.commit,
+            GitCommitErrorCode.add_failure, VcsErrorManager.ErrorLevel.error,
             'Failed to add file "{path}"!')
-VcsHelperError.registerError('git',
-            ErrorCategory.commit, GitCommitErrorCode.move_failure,
+VcsErrorManager.registerError('git',ErrorCategory.commit,
+            GitCommitErrorCode.move_failure, VcsErrorManager.ErrorLevel.error,
             'Failed to move file "{path}" to "{dest}"!')
-VcsHelperError.registerError('git',
+VcsErrorManager.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.remove_failure,
             'Failed to delete file "{path}"!')
-VcsHelperError.registerError('git',
+VcsErrorManager.registerError('git',
             ErrorCategory.commit, GitCommitErrorCode.commit_failure,
             'Failed to commit!')
 
@@ -93,7 +93,7 @@ class GitCommit(Commit):
             return False
 
     @property
-    def hasSubmitted(self) -> bool:
+    def hasCommitted(self) -> bool:
         # just check if local top commit the same as remote top, skip fetch operations
         if not self.repo.isHeadDetached:
             topCommit = self.repo.getTopCommit()
@@ -102,14 +102,14 @@ class GitCommit(Commit):
                 return True
         return False
 
-    def checkSubmittable(self) -> int:
-        errorCode = super().checkSubmittable()
+    def verifyCommittable(self) -> int:
+        errorCode = super().verifyCommittable()
         if errorCode != 0:
             return errorCode
         return 0
 
     def changeFileImpl(self, change: Change) -> int:
-        commitError = VcsHelperError('git', ErrorCategory.commit)
+        commitError = VcsErrorManager('git', ErrorCategory.commit)
 
         absPath = self.repo.root.joinpath(change.path)
         destAbsPath = None
@@ -125,7 +125,7 @@ class GitCommit(Commit):
                 f, d = resultList[0]
 
         if change.changeType != ChangeType.move:
-            result = change.applyChange(absPath, destAbsPath)
+            result = change.applyChangeContent(absPath, destAbsPath)
             if result != 0:
                 return result
 
@@ -152,7 +152,7 @@ class GitCommit(Commit):
                             path=str(change.path), dest=str(change.destPath))
 
         if change.changeType == ChangeType.move:
-            result = change.applyChange(absPath, destAbsPath)
+            result = change.applyChangeContent(absPath, destAbsPath)
             if result != 0:
                 return result
 
@@ -160,7 +160,7 @@ class GitCommit(Commit):
 
     def saveImpl(self, message: str) -> int:
         '''Do git commit here, commit changes to current local branch'''
-        commitError = VcsHelperError('git', ErrorCategory.commit)
+        commitError = VcsErrorManager('git', ErrorCategory.commit)
         sha = self.commitRef.commit(message)
         try:
             committed = self.repo.repo.commit(sha)
@@ -170,7 +170,7 @@ class GitCommit(Commit):
         self.commitRef = committed
         return 0
 
-    def submitImpl(self) -> int:
+    def commitImpl(self, message: str|None = None) -> int:
         '''Do git push here'''
         result = self.repo.push()
         return result

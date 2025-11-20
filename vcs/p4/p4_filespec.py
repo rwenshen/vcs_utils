@@ -1,3 +1,17 @@
+__all__ = [
+    'P4PathSpec',
+    'P4VersionSpec',
+    'P4VersionSpecRevision',
+    'P4VersionSpecNoneRevision',
+    'P4VersionSpecHeadRevision',
+    'P4VersionSpecHaveRevision',
+    'P4VersionSpecChangelist',
+    'P4VersionSpecLabel',
+    'P4VersionSpecClient',
+    'P4VersionSpecDate',
+    'P4FileSpec',
+]
+
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from datetime import datetime

@@ -1,6 +1,7 @@
 from enum import Enum, auto
 import typing
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from ..vcs.logger import *
 from .change import Change, ChangeErrorCode
@@ -13,49 +14,44 @@ class CommitErrorCode(Enum):
     writable = ChangeErrorCode.last.value
     readonly = auto()
     wrong_depot = auto()
-    already_saved = auto()
-    nothing_to_save = auto()
-    not_saved = auto()
-    already_submitted = auto()
+    already_committed = auto()
 
     last = auto()
 
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.writable, VcsHelperError.ErrorLevel.error,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    CommitErrorCode.writable, VcsErrorManager.ErrorLevel.error,
     'Commit "{description}" must be writable!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.readonly, VcsHelperError.ErrorLevel.error,
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    CommitErrorCode.readonly, VcsErrorManager.ErrorLevel.error,
     'Commit "{description}" must be readonly!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.already_saved, VcsHelperError.ErrorLevel.error,
-    'Commit "{description}" has been saved! The saving is skipped.')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.nothing_to_save, VcsHelperError.ErrorLevel.error,
-    'Commit "{description}" is empty, nothing to be saved!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.not_saved, VcsHelperError.ErrorLevel.error,
-    'Submission of commit "{description}" failed! It has NOT been saved!')
-VcsHelperError.registerError('common', ErrorCategory.commit,
-    CommitErrorCode.already_submitted, VcsHelperError.ErrorLevel.error,
-    'Submission of commit "{description}" failed! It has been submitted!')
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+    CommitErrorCode.already_committed, VcsErrorManager.ErrorLevel.error,
+    'Failed to commit "{description}"! It has been committed!')
+
+
+@dataclass
+class VcsResultCommit(VcsResult):
+    def __post_init__(self):
+        if bool(self):
+            assert isinstance(self.resultData, Commit)
 
 class Commit(ABC):
-    ''' A commit.
+    ''' Describe a VCS commit.
 Commit.commitRef is VCS specific data in python (e.g. change spec in P4Python, \
 or git.Commit / git.Index in GitPython).
 Commit.vcsData is VCS specific data (e.g. changelist number in P4, or commit \
 SHA in Git).'''
     
-    def __init__(self, repo: 'Repo', commitRef: typing.Any):
+    def __init__(self, repo: 'Repo', commitRef):
         self.__repo = repo
         self.__commitRef = commitRef
-        self.__commonCommitError = VcsHelperError(
+        self.__errorManagerCommon = VcsErrorManager(
                                                 'common', ErrorCategory.commit)
         self.__lastIterResult = 0
 
     @property
-    def error(self):
-        return self.__commonCommitError
+    def errorManager(self):
+        return self.__errorManagerCommon
 
     @property
     def lastIterResult(self) -> int:
@@ -85,7 +81,7 @@ SHA in Git).'''
 
     @property
     @abstractmethod
-    def vcsData(self) -> typing.Any:
+    def vcsData(self) -> int|bytes:
         raise NotImplemented
 
     @property
@@ -98,94 +94,61 @@ SHA in Git).'''
     def email(self) -> str:
         raise NotImplemented
 
-    def __verifyStatus(self, status: bool, expected: bool, 
-            errorCode: CommitErrorCode, **kwargs) -> bool:
+    def _verifyStatus(self, status: bool, expected: bool, 
+            errorCode: CommitErrorCode, **kwargs) -> VcsResult:
         if expected != status:
-            if self.__commonCommitError.raiseError(errorCode, **kwargs):
-                return False
-        return True
+            return self.__errorManagerCommon.raiseError(errorCode, **kwargs)
+        return VcsResult.createSuccess()
 
     @property
     @abstractmethod
     def isWritable(self) -> bool:
         raise NotImplemented
 
-    def verifyWritable(self) -> bool:
-        return self.__verifyStatus(self.isWritable, True,
+    def verifyWritable(self) -> VcsResult:
+        return self._verifyStatus(self.isWritable, True,
                             CommitErrorCode.writable,
                             description=self.description.replace('\n', '\\n'))
 
-    def verifyReadOnly(self) -> bool:
-        return self.__verifyStatus(self.isWritable, False,
+    def verifyReadOnly(self) -> VcsResult:
+        return self._verifyStatus(self.isWritable, False,
                             CommitErrorCode.readonly,
                             description=self.description.replace('\n', '\\n'))
-
-    @property
-    @abstractmethod
-    def hasSaved(self) -> bool:
-        raise NotImplemented
 
     @property
     @abstractmethod
     def isEmpty(self) -> bool:
         raise NotImplemented
 
-    def verifySavable(self) -> bool:
-        return \
-            self.__verifyStatus(self.hasSaved, False,
-                    CommitErrorCode.already_saved,
-                    description=self.description.replace('\n', '\\n')) and \
-            self.__verifyStatus(self.isEmpty, False,
-                    CommitErrorCode.nothing_to_save,
-                    description=self.description.replace('\n', '\\n'))
-
     @property
     @abstractmethod
-    def hasSubmitted(self) -> bool:
+    def hasCommitted(self) -> bool:
         raise NotImplemented
 
-    def verifySubmittable(self) -> bool:
-        return \
-            self.__verifyStatus(self.hasSaved, True,
-                    CommitErrorCode.not_saved,
-                    description=self.description.replace('\n', '\\n')) and \
-            self.__verifyStatus(self.isEmpty, False,
-                    CommitErrorCode.nothing_to_save,
-                    description=self.description.replace('\n', '\\n')) and \
-            self.__verifyStatus(self.hasSubmitted, False,
-                    CommitErrorCode.already_submitted,
-                    description=self.description.replace('\n', '\\n'))
+    def verifyCommittable(self) -> VcsResult:
+        verifyResult = self._verifyStatus(self.hasCommitted, False,
+                        CommitErrorCode.already_committed,
+                        description=self.description.replace('\n', '\\n'))
+        return verifyResult
 
-    def changeFile(self, change: Change) -> bool:
-        if not self.verifyWritable():
-            return False
+    def changeFile(self, change: Change) -> VcsResult:
+        verifyResult = self.verifyWritable()
+        if not verifyResult:
+            return verifyResult
         return self.changeFileImpl(change)
 
     @abstractmethod
-    def changeFileImpl(self, change: Change) -> bool:
+    def changeFileImpl(self, change: Change) -> VcsResult:
         raise NotImplemented
 
-    def save(self, message: str) -> bool:
-        if not self.verifySavable():
-            return False
-        return self.saveImpl(message)
-    
-    @abstractmethod
-    def saveImpl(self, message: str) -> bool:
-        raise NotImplemented
-
-    def submit(self, message: str|None = None) -> bool:
-        if not self.hasSaved:
-            if message is None:
-                message = "<New Commit>"
-            if not self.save(message):
-                return False
-        if not self.verifySubmittable():
-            return False
-        return self.submitImpl()
+    def commit(self, message: str|None = None) -> VcsResult:
+        verifyResult = self.verifyCommittable()
+        if not verifyResult:
+            return verifyResult
+        return self.commitImpl(message)
 
     @abstractmethod
-    def submitImpl(self) -> bool:
+    def commitImpl(self, message: str|None) -> VcsResult:
         raise NotImplemented
 
     @abstractmethod

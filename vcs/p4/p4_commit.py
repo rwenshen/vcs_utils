@@ -1,22 +1,42 @@
 import typing
 from pathlib import Path
+from enum import Enum, auto
 
-from .._common.logger import *
-from .._common.change import ChangeType, Change
-from .._common.commit import Commit, CommitErrorCode
+from ..logger import *
+from ..change import ChangeType, Change
+from ..commit import Commit, CommitErrorCode
 from .p4_runner import *
 
 if typing.TYPE_CHECKING:
     from .p4_repo import P4Repo
 
-VcsHelperError.registerError('common',
-            ErrorCategory.commit, CommitErrorCode.wrong_depot,
+
+# Move error codes and savable logic to P4Commit
+class P4CommitErrorCode(Enum):
+    already_saved = 1
+    nothing_to_save = auto()
+    not_saved = auto()
+
+    last = auto()
+
+VcsErrorManager.registerError('common', ErrorCategory.commit,
+            CommitErrorCode.wrong_depot, VcsErrorManager.ErrorLevel.error,
             'P4 Commit "{description}" is not belong to current depot!')
+VcsErrorManager.registerError('p4', ErrorCategory.commit,
+            P4CommitErrorCode.already_saved, VcsErrorManager.ErrorLevel.error,
+            'P4 Commit "{description}" has been saved! The saving is skipped.')
+VcsErrorManager.registerError('p4', ErrorCategory.commit,
+            P4CommitErrorCode.nothing_to_save, VcsErrorManager.ErrorLevel.error,
+            'P4 Commit "{description}" is empty, nothing to be saved!')
+VcsErrorManager.registerError('p4', ErrorCategory.commit,
+            P4CommitErrorCode.not_saved, VcsErrorManager.ErrorLevel.error,
+            'Submission of P4 commit "{description}" failed! It has NOT been saved!')
+
 
 class P4Commit(Commit):
-
     def __init__(self, p4Repo: 'P4Repo', p4CommitInfo: typing.Dict):
         super().__init__(p4Repo, p4CommitInfo)
+        self._errorManagerP4Commit = VcsErrorManager('p4', ErrorCategory.commit)
 
     @property
     def p4Repo(self) -> 'P4Repo':
@@ -63,9 +83,34 @@ class P4Commit(Commit):
     def isWritable(self) -> bool:
         return self.commitRef['Status'] in ['pending', 'new']
 
+
     @property
     def hasSaved(self) -> bool:
         return self.changelist > 0
+
+    def verifySavable(self) -> VcsResult:
+        if self.hasSaved:
+            return self._errorManagerP4Commit.raiseError(P4CommitErrorCode.already_saved,
+                description=self.description.replace('\n', '\\n'))
+        if self.isEmpty:
+            return self._errorManagerP4Commit.raiseError(P4CommitErrorCode.nothing_to_save,
+                description=self.description.replace('\n', '\\n'))
+        return VcsResult.createSuccess()
+
+    def save(self, message: str) -> VcsResult:
+        '''Save changelist with all opened changes in default pending\
+ changelist, to another named changelist.'''
+        verifyResult = self.verifySavable()
+        if not verifyResult:
+            return verifyResult
+
+        self.commitRef['Description'] = message
+        result = p4Save(self.repo.p4, 'change', self.commitRef)
+        if isinstance(result, VcsHelperErrorWrapper):
+            return result.raiseError()
+        changelist = int(result[0].split()[1])
+        self.commitRef.update(self.repo.getCommit(changelist).commitRef)
+        return 0
 
     @property
     def isEmpty(self) -> bool:
@@ -84,7 +129,7 @@ class P4Commit(Commit):
             return False
 
     @property
-    def hasSubmitted(self) -> bool:
+    def hasCommitted(self) -> bool:
         return not self.isWritable
 
     def changeFileImpl(self, change: Change) -> int:
@@ -94,7 +139,7 @@ class P4Commit(Commit):
             destAbsPath = self.repo.root.joinpath(change.destPath)
 
         if change.changeType == ChangeType.add:
-            result = change.applyChange(absPath, destAbsPath)
+            result = change.applyChangeContent(absPath, destAbsPath)
             if result != 0:
                 return result
 
@@ -109,42 +154,40 @@ class P4Commit(Commit):
         else:
             changelistArgs = {'-c': self.changelist}
 
-        if p4Command == 'add':
-            result = p4Run(self.p4Repo.p4, p4Command, '-f',
-                        absPath, **changelistArgs)
+        if p4Command == 'add': 
+            results = p4Run(self.p4Repo.p4, p4Command, '-f',
+                                getP4ValidLocalPath(absPath), **changelistArgs)
         else:
-            result = p4Run(self.p4Repo.p4, p4Command,
-                        getP4ValidLocalPath(absPath), **changelistArgs)
+            results = p4Run(self.p4Repo.p4, p4Command,
+                                getP4ValidLocalPath(absPath), **changelistArgs)
+        result = processP4RunResultsFileOpt(p4Command, results)
         if isinstance(result, VcsHelperErrorWrapper):
             return result.raiseError()
 
         if change.changeType == ChangeType.move:
-            result = p4Run(self.p4Repo.p4, 'move', 
-                        getP4ValidLocalPath(absPath), 
+            result = p4Run(self.p4Repo.p4, 'move',
+                        getP4ValidLocalPath(absPath),
                         getP4ValidLocalPath(destAbsPath),
                         **changelistArgs)
             if isinstance(result, VcsHelperErrorWrapper):
                 return result.raiseError()
 
         if change.changeType != ChangeType.add:
-            result = change.applyChange(absPath, destAbsPath)
+            result = change.applyChangeContent(absPath, destAbsPath)
             if result != 0:
                 return result
 
         return 0
 
-    def saveImpl(self, message: str) -> int:
-        '''Save changelist with all opened changes in default pending\
- changelist, to another named changelist.'''
-        self.commitRef['Description'] = message
-        result = p4Save(self.repo.p4, 'change', self.commitRef)
-        if isinstance(result, VcsHelperErrorWrapper):
-            return result.raiseError()
-        changelist = int(result[0].split()[1])
-        self.commitRef.update(self.repo.getCommit(changelist).commitRef)
-        return 0
-    
-    def submitImpl(self) -> int:
+    def commitImpl(self, message: str|None) -> int:
+        # check savable
+        if not self.hasSaved:
+            if message is None:
+                message = "<New Commit>"
+            saveResult = self.save(message)
+            if not saveResult:
+                return saveResult
+        
         # TODO, auto resolve
         #for file in self.commitRef['Files']:
         #    result = p4Run(self.repo.p4, 'fstat',
@@ -171,7 +214,7 @@ class P4Commit(Commit):
                     CommitErrorCode.writable,
                     description=self.description.replace('\n', '\\n'),
                     exceptionOrExit=False,
-                    returnResult=VcsHelperError.RaiseType.return_code)
+                    returnResult=VcsErrorManager.RaiseType.return_code)
             return
 
         clientRoot = self.repo.clientRoot

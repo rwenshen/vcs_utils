@@ -5,16 +5,16 @@ import typing
 import getpass
 from P4 import P4
 
-from .._common.logger import *
-from .._common.commit import Commit
-from .._common.repo import Repo, RepoErrorCode
+from ..logger import *
+from ..commit import Commit
+from ..repo import Repo, RepoErrorCode
 from .p4_runner import *
-from .p4_commit import P4Commit
+from .p4_commit import P4Commit, P4CommitErrorCode
 
 
 class P4RepoErrorCode(Enum):
     # connection
-    connection_failure = 1
+    connection_failure = P4CommitErrorCode.last.value
     login_failure = auto()
 
     # repo
@@ -33,39 +33,39 @@ class P4RepoErrorCode(Enum):
     # tag
     tag_to_pending = 0x300
 
-VcsHelperError.registerError('p4',
-    ErrorCategory.connection, P4RepoErrorCode.connection_failure,
+VcsErrorManager.registerError('p4', ErrorCategory.connection,
+    P4RepoErrorCode.connection_failure, VcsErrorManager.ErrorLevel.fatal,
     'Failed to connect to P4!')
-VcsHelperError.registerError('p4',
-    ErrorCategory.connection, P4RepoErrorCode.login_failure,
+VcsErrorManager.registerError('p4', ErrorCategory.connection,
+    P4RepoErrorCode.login_failure, VcsErrorManager.ErrorLevel.fatal,
     'Failed to login P4!')
 
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.client_invalid,
     'Client {client} is invalid!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.client_inexistent,
     'Client {client} is inexistent!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.root_invalid,
     'Root "{root}" is invalid!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.root_not_empty,
     'Root "{root}" is not empty!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.not_a_stream_client,
     'Client "{client}" is not a stream client!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.stream_inexistent,
     'Stream "{stream}" is inexistent!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.stream_not_parent,
     'Stream "{parent}" is not the parent of stream {stream}!')
-VcsHelperError.registerError('p4',
+VcsErrorManager.registerError('p4',
     ErrorCategory.repo, P4RepoErrorCode.stream_no_parent,
     'Stream "{stream}" has no parent!')
 
-VcsHelperError.registerError('p4', ErrorCategory.tag, 0x100,
+VcsErrorManager.registerError('p4', ErrorCategory.tag, 0x100,
     'Cannot tag a pending changelist!')
 
 
@@ -75,7 +75,7 @@ class P4Repo(Repo):
             p4Port: str|None = None,
             p4User: str|None = None,
             p4Client: str|None = None):
-        connectionError = VcsHelperError('p4', ErrorCategory.connection)
+        connectionErrorManager = VcsErrorManager('p4', ErrorCategory.connection)
         # init
         self.__info: dict = {}
 
@@ -89,10 +89,9 @@ class P4Repo(Repo):
             self.p4.client = p4Client
         try:
             self.p4.connect()
+            assert self.p4.connected()
         except Exception as e:
-            connectionError.raiseError(P4RepoErrorCode.connection_failure,
-                                                        exceptionOrExit=True)
-        assert self.p4.connected(), 'Impossible'
+            connectionErrorManager.raiseError(P4RepoErrorCode.connection_failure)
 
         # login
         needPassword = False
@@ -106,8 +105,7 @@ class P4Repo(Repo):
                 self.p4.run_login(password=password)
                 VcsHelperLogger.info('P4 is logged in.')
             except Exception as e:
-                connectionError.raiseError(P4RepoErrorCode.login_failure,
-                                                        exceptionOrExit=True)
+                connectionErrorManager.raiseError(P4RepoErrorCode.login_failure)
 
         # add log
         self.p4.logger = VcsHelperLogger
@@ -119,7 +117,8 @@ class P4Repo(Repo):
         results = p4Run(self.p4, 'info')
         errorCode, self.__info = verifyP4RunResultDict(
                                     results, exceptionOrExit=exceptionOrExit)
-        super().__init__(self.clientRoot)
+        root = self.clientRoot if self.clientRoot is not None else Path()
+        super().__init__(root)
 
         self.__description = f'P4 Repo\n\tPort: {self.p4.port}\n'
         if self.clientRoot is not None:
@@ -182,10 +181,10 @@ class P4Repo(Repo):
 
     @staticmethod
     def checkClient(exceptionOrExit: bool=False,
-            returnResult=VcsHelperError.RaiseType.return_code):
+            returnResult=VcsErrorManager.RaiseType.return_code):
         def decorator(func):
             def wrapper(self, *args, **kwargs):
-                error = VcsHelperError('p4', ErrorCategory.repo)
+                error = VcsErrorManager('p4', ErrorCategory.repo)
                 if self.clientRoot is None:
                     return error.raiseError(P4RepoErrorCode.client_invalid,
                         exceptionOrExit=exceptionOrExit,
@@ -304,7 +303,7 @@ class P4Repo(Repo):
         if isinstance(srcStream, VcsHelperErrorWrapper):
             return srcStream.raiseError()
         if srcStream['Parent'] != stream['Stream']:
-            error = VcsHelperError('p4', ErrorCategory.repo)
+            error = VcsErrorManager('p4', ErrorCategory.repo)
             error.raiseError(P4RepoErrorCode.stream_not_parent,
                 parent=stream['Stream'], stream=srcStreamName)
         
@@ -336,7 +335,7 @@ class P4Repo(Repo):
         if isinstance(stream, VcsHelperErrorWrapper):
             return stream.raiseError()
         if stream['Parent'] is None:
-            error = VcsHelperError('p4', ErrorCategory.repo)
+            error = VcsErrorManager('p4', ErrorCategory.repo)
             error.raiseError(P4RepoErrorCode.stream_no_parent,
                                                 stream=stream['Stream'])
 
@@ -381,7 +380,7 @@ class P4Repo(Repo):
             stream: typing.Optional[str]=None,
             **kwargs):
         # verify root
-        error = VcsHelperError('p4', ErrorCategory.repo)
+        error = VcsErrorManager('p4', ErrorCategory.repo)
         if root.exists():
             if not root.is_dir():
                 return error.raiseError(P4RepoErrorCode.root_invalid,
@@ -542,8 +541,8 @@ class P4Repo(Repo):
     def setTag(self, tagName: str, commit: Commit, message: str) -> int:
         assert isinstance(commit, P4Commit)
         if commit.isWritable:
-            error = VcsHelperError('p4', ErrorCategory.tag)
-            return error.raiseError(P4RepoErrorCode.tag_to_pending)
+        error = VcsErrorManager('p4', ErrorCategory.tag)
+        return error.raiseError(P4RepoErrorCode.tag_to_pending)
         changelist = commit.vcsData
 
         # create or get label
@@ -604,4 +603,4 @@ class P4Repo(Repo):
         result = self.sync(self.getTopCommit())
         if result != 0:
             return result
-        return commit.submit()
+        return commit.commit()

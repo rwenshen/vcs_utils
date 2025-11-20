@@ -2,11 +2,11 @@ from pathlib import Path
 import typing
 from enum import Enum, auto
 import git
-from git.remote import PushInfo, FetchInfo
+from git.remote import PushInfo, FetchInfo, RemoteProgress
 
-from ..common.logger import *
-from ..common.commit import Commit
-from ..common.repo import Repo, RepoErrorCode
+from ..logger import *
+from ..commit import Commit
+from ..repo import Repo, RepoErrorCode
 
 from .git_commit import GitCommit
 
@@ -138,7 +138,7 @@ VcsHelperError.registerError('git',
     'Failed to delete tag "{tag}"!')
 
 
-class GitProgress(git.remote.RemoteProgress):
+class GitProgress(RemoteProgress):
 
     def __init__(self, gitOperation: str):
         super().__init__()
@@ -148,22 +148,24 @@ class GitProgress(git.remote.RemoteProgress):
             cur_count: typing.Union[str, float],
             max_count: typing.Union[str, float, None] = None,
             message: str = '') -> None:
-        if op_code & git.remote.RemoteProgress.COUNTING:
+        if op_code & RemoteProgress.COUNTING:
             op = 'Counting'
-        elif op_code & git.remote.RemoteProgress.COMPRESSING:
+        elif op_code & RemoteProgress.COMPRESSING:
             op = 'Compressing'
-        elif op_code & git.remote.RemoteProgress.WRITING:
+        elif op_code & RemoteProgress.WRITING:
             op = 'Writing'
-        elif op_code & git.remote.RemoteProgress.RECEIVING:
+        elif op_code & RemoteProgress.RECEIVING:
             op = 'Receiving'
-        elif op_code & git.remote.RemoteProgress.RESOLVING:
+        elif op_code & RemoteProgress.RESOLVING:
             op = 'Resolving'
-        elif op_code & git.remote.RemoteProgress.FINDING_SOURCES:
+        elif op_code & RemoteProgress.FINDING_SOURCES:
             op = 'Finding sources'
-        elif op_code & git.remote.RemoteProgress.CHECKING_OUT:
+        elif op_code & RemoteProgress.CHECKING_OUT:
             op = 'Checking out'
+        else:
+            op = 'Unknown operation'
 
-        if op_code & git.remote.RemoteProgress.END:
+        if op_code & RemoteProgress.END:
             VcsHelperLogger.info(f'\t{op} done; {message}')
         else:
             VcsHelperLogger.info(f'\t{op}: {cur_count} / {max_count}; {message}')
@@ -533,7 +535,7 @@ class GitRepo(Repo):
         if self.isHeadDetached and self.repo.head.commit == commit.commitRef:
             return 0 # already on the commit
         # check readonly
-        errorCode = commit.checkReadOnly()
+        errorCode = commit.verifyReadOnly()
         if errorCode != 0:
             return errorCode
         # do check out
